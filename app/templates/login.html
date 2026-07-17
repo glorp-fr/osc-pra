@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="login">
+  <h1>Osc-PRA</h1>
+  <form method="post" action="/login">
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    <label>Utilisateur <input type="text" name="username" required autofocus></label>
+    <label>Mot de passe <input type="password" name="password" required></label>
+    <button type="submit">Connexion</button>
+  </form>
+</main>
+{% endblock %}

@@ -1,0 +1,15 @@
+[Unit]
+Description=Osc-PRA
+After=network.target
+
+[Service]
+Type=simple
+User=__SERVICE_USER__
+WorkingDirectory=__APP_DIR__
+Environment=PATH=__APP_DIR__/venv/bin
+ExecStart=__APP_DIR__/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

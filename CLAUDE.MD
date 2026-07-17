@@ -48,7 +48,8 @@ Les commandes OCTL sont schedulées directement via cron.
 
 ## Stack technique
 
-- Frontend : à choisir
+- Backend : Python (FastAPI)
+- Frontend : rendu serveur Jinja2 + htmx (pas de build JS séparé)
 - Base de données : SQLite (fichier unique embarqué, sans serveur à gérer)
   - *Remplace le stockage JSON brut initialement prévu : les jobs sont traités en parallèle (un job par VM), donc des écritures concurrentes sur un fichier JSON risquent la corruption. SQLite apporte les transactions ACID et le verrouillage nécessaires, tout en restant simple à déployer/sauvegarder (fichier unique)*
 - Utilisation d'OCTL
