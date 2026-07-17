@@ -120,6 +120,8 @@ Les commandes OCTL sont schedulées directement via cron.
 
 ## Déploiement
 
+Distributions supportées : Debian, Ubuntu (script basé sur apt).
+
 Script de setup qui :
 
 - Installe toutes les dépendances
