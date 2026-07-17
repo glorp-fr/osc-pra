@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as macros %}
 {% block content %}
 <div class="stitle" style="margin-bottom:16px">Paramètres globaux</div>
 {% if saved %}<div class="ok-banner" style="margin-bottom:16px">Paramètres enregistrés.</div>{% endif %}
@@ -38,7 +39,8 @@
     <label>Bucket S3 <input type="text" name="backup_bucket" value="{{ settings.backup_bucket if settings else '' }}"></label>
     <label>AK <input type="text" name="backup_ak" value="{{ settings.backup_ak if settings else '' }}"></label>
     <label>SK <input type="password" name="backup_sk" placeholder="{{ '••••••••' if settings and settings.backup_sk_encrypted else '' }}"></label>
-    <label>Fréquence de sauvegarde <input type="text" name="backup_frequency" placeholder="ex: quotidienne" value="{{ settings.backup_frequency if settings else '' }}"></label>
+    <div class="lbl">Fréquence de sauvegarde</div>
+    {{ macros.frequency_picker('backup', backup_freq) }}
     <label>Sauvegardes à conserver <input type="number" min="1" name="backup_retain_count" value="{{ settings.backup_retain_count if settings else 7 }}"></label>
   </fieldset>
 

@@ -1,0 +1,50 @@
+{% macro frequency_picker(prefix, parsed) %}
+<div class="freq-picker">
+  <div class="freq-type-row">
+    <label class="radio">
+      <input type="radio" name="{{ prefix }}_freq_type" value="horaire"
+        onchange="document.getElementById('{{ prefix }}-horaire').hidden = false; document.getElementById('{{ prefix }}-quotidien').hidden = true; document.getElementById('{{ prefix }}-hebdomadaire').hidden = true;"
+        {{ "checked" if parsed.freq_type == "horaire" else "" }}>
+      Horaire
+    </label>
+    <label class="radio">
+      <input type="radio" name="{{ prefix }}_freq_type" value="quotidien"
+        onchange="document.getElementById('{{ prefix }}-horaire').hidden = true; document.getElementById('{{ prefix }}-quotidien').hidden = false; document.getElementById('{{ prefix }}-hebdomadaire').hidden = true;"
+        {{ "checked" if parsed.freq_type == "quotidien" else "" }}>
+      Quotidien
+    </label>
+    <label class="radio">
+      <input type="radio" name="{{ prefix }}_freq_type" value="hebdomadaire"
+        onchange="document.getElementById('{{ prefix }}-horaire').hidden = true; document.getElementById('{{ prefix }}-quotidien').hidden = true; document.getElementById('{{ prefix }}-hebdomadaire').hidden = false;"
+        {{ "checked" if parsed.freq_type == "hebdomadaire" else "" }}>
+      Hebdomadaire
+    </label>
+  </div>
+
+  <div id="{{ prefix }}-horaire" {{ "hidden" if parsed.freq_type != "horaire" else "" }}>
+    <label>Toutes les
+      <select name="{{ prefix }}_hourly_interval">
+        {% for n in [1, 2, 3, 4, 6, 8, 12] %}
+        <option value="{{ n }}" {{ "selected" if parsed.hourly_interval == n else "" }}>{{ n }} heure{{ "s" if n > 1 else "" }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </div>
+
+  <div id="{{ prefix }}-quotidien" {{ "hidden" if parsed.freq_type != "quotidien" else "" }}>
+    <label>Heure <input type="time" name="{{ prefix }}_time" value="{{ parsed.time }}"></label>
+  </div>
+
+  <div id="{{ prefix }}-hebdomadaire" {{ "hidden" if parsed.freq_type != "hebdomadaire" else "" }}>
+    <div class="day-checks">
+      {% for label, value in [("Lun", 1), ("Mar", 2), ("Mer", 3), ("Jeu", 4), ("Ven", 5), ("Sam", 6), ("Dim", 0)] %}
+      <label class="checkbox day-check">
+        <input type="checkbox" name="{{ prefix }}_days" value="{{ value }}" {{ "checked" if value in parsed.days else "" }}>
+        {{ label }}
+      </label>
+      {% endfor %}
+    </div>
+    <label>Heure <input type="time" name="{{ prefix }}_time" value="{{ parsed.time }}"></label>
+  </div>
+</div>
+{% endmacro %}

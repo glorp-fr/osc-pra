@@ -4,7 +4,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse
 from passlib.hash import bcrypt
 
-from app import octl
+from app import octl, scheduling
 from app.auth import require_admin
 from app.crypto import decrypt, encrypt
 from app.db import get_connection
@@ -30,9 +30,11 @@ def parametres_form(request: Request):
     settings = conn.execute("SELECT * FROM settings WHERE id = 1").fetchone()
     conn.close()
 
+    backup_freq = scheduling.parse_cron(settings["backup_frequency"] if settings else None)
+
     return templates.TemplateResponse(
         "admin/parametres.html",
-        {"request": request, "user": user, "settings": settings, "saved": False},
+        {"request": request, "user": user, "settings": settings, "saved": False, "backup_freq": backup_freq},
     )
 
 
@@ -52,12 +54,17 @@ def parametres_submit(
     backup_bucket: str = Form(""),
     backup_ak: str = Form(""),
     backup_sk: str = Form(""),
-    backup_frequency: str = Form(""),
+    backup_freq_type: str = Form("quotidien"),
+    backup_hourly_interval: int = Form(1),
+    backup_time: str = Form("02:00"),
+    backup_days: list[int] = Form([]),
     backup_retain_count: int = Form(7),
 ):
     user = require_admin(request)
     if isinstance(user, RedirectResponse):
         return user
+
+    backup_frequency = scheduling.build_cron(backup_freq_type, backup_hourly_interval, backup_time, backup_days)
 
     conn = get_connection()
     existing = conn.execute("SELECT * FROM settings WHERE id = 1").fetchone()
@@ -94,9 +101,11 @@ def parametres_submit(
     settings = conn.execute("SELECT * FROM settings WHERE id = 1").fetchone()
     conn.close()
 
+    backup_freq = scheduling.parse_cron(settings["backup_frequency"] if settings else None)
+
     return templates.TemplateResponse(
         "admin/parametres.html",
-        {"request": request, "user": user, "settings": settings, "saved": True},
+        {"request": request, "user": user, "settings": settings, "saved": True, "backup_freq": backup_freq},
     )
 
 
@@ -177,7 +186,8 @@ def plan_new_form(request: Request):
         return user
 
     return templates.TemplateResponse(
-        "admin/plan_form.html", {"request": request, "user": user, "error": None}
+        "admin/plan_form.html",
+        {"request": request, "user": user, "error": None, "snapshot_freq": scheduling.parse_cron(None)},
     )
 
 
@@ -196,12 +206,17 @@ def plan_new_submit(
     sync_ak: str = Form(""),
     sync_sk: str = Form(""),
     target_retain_count: int = Form(7),
-    snapshot_frequency: str = Form(""),
+    snapshot_freq_type: str = Form("quotidien"),
+    snapshot_hourly_interval: int = Form(1),
+    snapshot_time: str = Form("02:00"),
+    snapshot_days: list[int] = Form([]),
     source_retain_count: int = Form(7),
 ):
     user = require_admin(request)
     if isinstance(user, RedirectResponse):
         return user
+
+    snapshot_frequency = scheduling.build_cron(snapshot_freq_type, snapshot_hourly_interval, snapshot_time, snapshot_days)
 
     conn = get_connection()
     try:
@@ -222,9 +237,10 @@ def plan_new_submit(
         conn.commit()
     except Exception:
         conn.close()
+        snapshot_freq = scheduling.parse_cron(snapshot_frequency)
         return templates.TemplateResponse(
             "admin/plan_form.html",
-            {"request": request, "user": user, "error": "Un plan porte déjà ce nom"},
+            {"request": request, "user": user, "error": "Un plan porte déjà ce nom", "snapshot_freq": snapshot_freq},
             status_code=400,
         )
     conn.close()
