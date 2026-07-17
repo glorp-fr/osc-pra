@@ -1,12 +1,24 @@
 {% extends "base.html" %}
-{% block content %}
-<main class="login">
-  <h1>Osc-PRA</h1>
-  <form method="post" action="/login">
-    {% if error %}<p class="error">{{ error }}</p>{% endif %}
-    <label>Utilisateur <input type="text" name="username" required autofocus></label>
-    <label>Mot de passe <input type="password" name="password" required></label>
-    <button type="submit">Connexion</button>
-  </form>
-</main>
+{% block login_content %}
+<div class="login-wrap">
+  <div class="login-card">
+    <div style="text-align:center;margin-bottom:24px">
+      <img src="/static/assets/logo-outscale-blanc.svg" alt="OUTSCALE" height="30" style="background:var(--os-blue-dark);padding:10px 14px;border-radius:12px;margin-bottom:12px">
+      <div style="font-weight:700;font-size:18px;color:var(--os-blue-dark)">Osc-PRA</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:4px">Plans de Reprise d'Activité</div>
+    </div>
+    <form method="post" action="/login" style="max-width:none">
+      {% if error %}<div class="err-banner">{{ error }}</div>{% endif %}
+      <div>
+        <div class="lbl" style="margin-bottom:4px">Utilisateur</div>
+        <input type="text" class="inp" name="username" required autofocus autocomplete="username">
+      </div>
+      <div>
+        <div class="lbl" style="margin-bottom:4px">Mot de passe</div>
+        <input type="password" class="inp" name="password" required autocomplete="current-password">
+      </div>
+      <button type="submit" class="btn blue" style="width:100%;justify-content:center;padding:9px 0">Connexion</button>
+    </form>
+  </div>
+</div>
 {% endblock %}

@@ -1,5 +1,5 @@
 {% if error %}
-<p class="error">{{ error }}</p>
+<div class="err-banner">{{ error }}</div>
 {% elif vms is none %}
 <p class="hint">Renseigne l'AK, le SK et la région source ci-dessus puis clique sur « Scanner les VMs ».</p>
 {% elif vms|length == 0 %}

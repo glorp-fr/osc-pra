@@ -50,6 +50,7 @@ Les commandes OCTL sont schedulées directement via cron.
 
 - Backend : Python (FastAPI)
 - Frontend : rendu serveur Jinja2 + htmx (pas de build JS séparé)
+  - Charte graphique : identité OUTSCALE reprise depuis `/var/www/html/tarifs-osc` (`CHARTE_GRAPHIQUE.md` + `style.css`) — tokens de couleur (Dark Blue `#19233E`, Indigo `#5165F5`, DS Blue `#009CDE`, Yellow `#FDC605`), typographies Montserrat/Open Sans/DM Mono, composants (`.card`, `.btn`, `.bdg`, banners, sidebar)
 - Base de données : SQLite (fichier unique embarqué, sans serveur à gérer)
   - *Remplace le stockage JSON brut initialement prévu : les jobs sont traités en parallèle (un job par VM), donc des écritures concurrentes sur un fichier JSON risquent la corruption. SQLite apporte les transactions ACID et le verrouillage nécessaires, tout en restant simple à déployer/sauvegarder (fichier unique)*
 - Utilisation d'OCTL (https://github.com/outscale/octl)

@@ -1,30 +1,36 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Ressources du compte — {{ plan.name }}</h1>
-<p><a href="/admin/plans">&larr; Retour aux plans</a></p>
+<div class="stitle" style="margin-bottom:4px">Ressources du compte — {{ plan.name }}</div>
+<p style="margin-bottom:16px"><a href="/admin/plans">&larr; Retour aux plans</a></p>
 
 {% if not octl_available %}
-<p class="error">octl n'est pas installé sur ce serveur — les scans échoueront.</p>
+<div class="err-banner" style="margin-bottom:16px">octl n'est pas installé sur ce serveur — les scans échoueront.</div>
 {% endif %}
 {% if not (plan.source_ak and plan.source_sk_encrypted and plan.source_region) %}
-<p class="error">AK/SK/région source non configurés pour ce plan — modifie-le pour pouvoir scanner.</p>
+<div class="err-banner" style="margin-bottom:16px">AK/SK/région source non configurés pour ce plan — modifie-le pour pouvoir scanner.</div>
 {% endif %}
 
-<section>
-  <h2>Subnets</h2>
-  <button hx-post="/admin/plans/{{ plan.id }}/ressources/scan/subnets" hx-target="#subnets-result" hx-swap="innerHTML">Scanner</button>
-  <div id="subnets-result"><p class="hint">Pas encore scanné.</p></div>
-</section>
+<div class="card">
+  <div class="phdr">
+    <span class="stitle" style="font-size:14px">Subnets</span>
+    <button class="btn sm ghost" hx-post="/admin/plans/{{ plan.id }}/ressources/scan/subnets" hx-target="#subnets-result" hx-swap="innerHTML">Scanner</button>
+  </div>
+  <div class="pbody" id="subnets-result"><p class="hint">Pas encore scanné.</p></div>
+</div>
 
-<section>
-  <h2>Security groups</h2>
-  <button hx-post="/admin/plans/{{ plan.id }}/ressources/scan/security-groups" hx-target="#sg-result" hx-swap="innerHTML">Scanner</button>
-  <div id="sg-result"><p class="hint">Pas encore scanné.</p></div>
-</section>
+<div class="card">
+  <div class="phdr">
+    <span class="stitle" style="font-size:14px">Security groups</span>
+    <button class="btn sm ghost" hx-post="/admin/plans/{{ plan.id }}/ressources/scan/security-groups" hx-target="#sg-result" hx-swap="innerHTML">Scanner</button>
+  </div>
+  <div class="pbody" id="sg-result"><p class="hint">Pas encore scanné.</p></div>
+</div>
 
-<section>
-  <h2>Route tables</h2>
-  <button hx-post="/admin/plans/{{ plan.id }}/ressources/scan/route-tables" hx-target="#rt-result" hx-swap="innerHTML">Scanner</button>
-  <div id="rt-result"><p class="hint">Pas encore scanné.</p></div>
-</section>
+<div class="card">
+  <div class="phdr">
+    <span class="stitle" style="font-size:14px">Route tables</span>
+    <button class="btn sm ghost" hx-post="/admin/plans/{{ plan.id }}/ressources/scan/route-tables" hx-target="#rt-result" hx-swap="innerHTML">Scanner</button>
+  </div>
+  <div class="pbody" id="rt-result"><p class="hint">Pas encore scanné.</p></div>
+</div>
 {% endblock %}

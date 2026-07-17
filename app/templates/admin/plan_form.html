@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Nouveau plan de reprise</h1>
-{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<div class="stitle" style="margin-bottom:16px">Nouveau plan de reprise</div>
+{% if error %}<div class="err-banner" style="margin-bottom:16px">{{ error }}</div>{% endif %}
 
 <form method="post" action="/admin/plans/nouveau">
   <fieldset>
@@ -14,7 +14,7 @@
     <label>Région source <input type="text" name="source_region" placeholder="ex: eu-west-2"></label>
     <label>AK <input type="text" name="source_ak"></label>
     <label>SK <input type="password" name="source_sk"></label>
-    <button type="button" hx-post="/admin/plans/octl/test-ak" hx-include="closest form" hx-target="#ak-status" hx-swap="innerHTML">Tester l'AK/SK</button>
+    <button type="button" class="btn sm ghost" hx-post="/admin/plans/octl/test-ak" hx-include="closest form" hx-target="#ak-status" hx-swap="innerHTML">Tester l'AK/SK</button>
     <div id="ak-status"></div>
   </fieldset>
 
@@ -26,7 +26,7 @@
         <option value="autre_region">Autre région</option>
       </select>
     </label>
-    <div id="cross-region-fields" hidden>
+    <div id="cross-region-fields" hidden style="display:flex;flex-direction:column;gap:10px">
       <label>Région <input type="text" name="target_region" placeholder="ex: eu-west-2"></label>
       <label>Endpoint S3 de synchro <input type="text" name="sync_endpoint"></label>
       <label>Bucket S3 de synchro <input type="text" name="sync_bucket"></label>
@@ -38,7 +38,7 @@
 
   <fieldset>
     <legend>VMs à répliquer</legend>
-    <button type="button" hx-post="/admin/plans/octl/scan-vms" hx-include="closest form" hx-target="#vm-list" hx-swap="innerHTML">Scanner les VMs</button>
+    <button type="button" class="btn sm ghost" hx-post="/admin/plans/octl/scan-vms" hx-include="closest form" hx-target="#vm-list" hx-swap="innerHTML">Scanner les VMs</button>
     <div id="vm-list"><p class="hint">Renseigne l'AK, le SK et la région source ci-dessus puis clique sur « Scanner les VMs ».</p></div>
   </fieldset>
 
@@ -48,6 +48,6 @@
     <label>Snapshots à conserver <input type="number" min="1" name="source_retain_count" value="7"></label>
   </fieldset>
 
-  <button type="submit">Créer le plan</button>
+  <button type="submit" class="btn blue">Créer le plan</button>
 </form>
 {% endblock %}

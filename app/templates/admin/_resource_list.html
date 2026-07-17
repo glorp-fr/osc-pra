@@ -1,5 +1,5 @@
 {% if error %}
-<p class="error">{{ error }}</p>
+<div class="err-banner">{{ error }}</div>
 {% elif items is none %}
 <p class="hint">Clique sur « Scanner » pour lancer la requête.</p>
 {% elif items|length == 0 %}

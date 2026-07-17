@@ -1,28 +1,34 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Gestion des comptes</h1>
-{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<div class="stitle" style="margin-bottom:16px">Gestion des comptes</div>
+{% if error %}<div class="err-banner" style="margin-bottom:16px">{{ error }}</div>{% endif %}
 
-<table>
-  <thead>
-    <tr><th>Utilisateur</th><th>Rôle</th><th>Créé le</th></tr>
-  </thead>
-  <tbody>
-    {% for account in accounts %}
-    <tr>
-      <td>{{ account.username }}</td>
-      <td>{{ "Admin" if account.is_admin else "Opérateur" }}</td>
-      <td>{{ account.created_at }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div class="card">
+  <div class="pbody">
+    <table>
+      <thead><tr><th>Utilisateur</th><th>Rôle</th><th>Créé le</th></tr></thead>
+      <tbody>
+        {% for account in accounts %}
+        <tr>
+          <td>{{ account.username }}</td>
+          <td><span class="bdg {{ 'admin' if account.is_admin else 'operateur' }}">{{ "Admin" if account.is_admin else "Opérateur" }}</span></td>
+          <td class="mono" style="font-size:11px;color:var(--text-muted)">{{ account.created_at }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
 
-<h2>Créer un compte</h2>
-<form method="post" action="/admin/comptes">
-  <label>Utilisateur <input type="text" name="username" required></label>
-  <label>Mot de passe <input type="password" name="password" required minlength="8"></label>
-  <label class="checkbox"><input type="checkbox" name="is_admin" value="true"> Compte admin</label>
-  <button type="submit">Créer</button>
-</form>
+<div class="card">
+  <div class="phdr"><span class="stitle" style="font-size:14px">Créer un compte</span></div>
+  <div class="pbody">
+    <form method="post" action="/admin/comptes">
+      <label>Utilisateur <input type="text" name="username" required></label>
+      <label>Mot de passe <input type="password" name="password" required minlength="8"></label>
+      <label class="checkbox"><input type="checkbox" name="is_admin" value="true"> Compte admin</label>
+      <button type="submit" class="btn blue">Créer</button>
+    </form>
+  </div>
+</div>
 {% endblock %}

@@ -1,38 +1,41 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Plans de reprise</h1>
-
-<a href="/admin/plans/nouveau" class="button">+ Nouveau plan</a>
+<div class="phdr" style="padding:0 0 16px;border:none">
+  <span class="stitle">Plans de reprise</span>
+  <a href="/admin/plans/nouveau" class="btn blue">+ Nouveau plan</a>
+</div>
 
 {% if plans %}
-<table>
-  <thead>
-    <tr><th>Nom</th><th>Cible</th><th>Statut</th><th>Actions</th></tr>
-  </thead>
-  <tbody>
-    {% for plan in plans %}
-    <tr>
-      <td>{{ plan.name }}</td>
-      <td>{{ "Même région" if plan.target_type == "meme_region" else "Autre région (" ~ plan.target_region ~ ")" }}</td>
-      <td>{{ "Actif" if plan.active else "Désactivé" }}</td>
-      <td class="actions">
-        {% if plan.active %}
-        <form method="post" action="/admin/plans/{{ plan.id }}/desactiver">
-          <button type="submit">Désactiver</button>
-        </form>
-        {% else %}
-        <form method="post" action="/admin/plans/{{ plan.id }}/activer">
-          <button type="submit">Activer</button>
-        </form>
-        {% endif %}
-        <a href="/admin/plans/{{ plan.id }}/ressources" class="button">Ressources</a>
-        <a href="/admin/plans/{{ plan.id }}/supprimer" class="button danger">Supprimer</a>
-        <button type="button" disabled title="Aucune donnée de job disponible">Exporter le journal</button>
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div class="card">
+  <div class="pbody">
+    <table>
+      <thead><tr><th>Nom</th><th>Cible</th><th>Statut</th><th>Actions</th></tr></thead>
+      <tbody>
+        {% for plan in plans %}
+        <tr>
+          <td>{{ plan.name }}</td>
+          <td>{{ "Même région" if plan.target_type == "meme_region" else "Autre région (" ~ plan.target_region ~ ")" }}</td>
+          <td><span class="bdg {{ 'actif' if plan.active else 'inactif' }}">{{ "Actif" if plan.active else "Désactivé" }}</span></td>
+          <td class="actions">
+            {% if plan.active %}
+            <form method="post" action="/admin/plans/{{ plan.id }}/desactiver">
+              <button type="submit" class="btn sm ghost">Désactiver</button>
+            </form>
+            {% else %}
+            <form method="post" action="/admin/plans/{{ plan.id }}/activer">
+              <button type="submit" class="btn sm ghost">Activer</button>
+            </form>
+            {% endif %}
+            <a href="/admin/plans/{{ plan.id }}/ressources" class="btn sm ghost">Ressources</a>
+            <a href="/admin/plans/{{ plan.id }}/supprimer" class="btn sm red">Supprimer</a>
+            <button type="button" class="btn sm ghost" disabled data-tooltip="Aucune donnée de job disponible">Exporter le journal</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
 {% else %}
 <p class="empty">Aucun plan de reprise configuré.</p>
 {% endif %}

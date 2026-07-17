@@ -1,35 +1,39 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Suivi</h1>
+<div class="stitle" style="margin-bottom:16px">Suivi</div>
 
-<section>
-  <h2>Plans de reprise</h2>
-  {% if plans %}
-  <table>
-    <thead>
-      <tr><th>Nom</th><th>Statut</th></tr>
-    </thead>
-    <tbody>
-      {% for plan in plans %}
-      <tr>
-        <td>{{ plan.name }}</td>
-        <td>{{ "Actif" if plan.active else "Désactivé" }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p class="empty">Aucun plan de reprise configuré.</p>
-  {% endif %}
-</section>
+<div class="card">
+  <div class="phdr"><span class="stitle" style="font-size:14px">Plans de reprise</span></div>
+  <div class="pbody">
+    {% if plans %}
+    <table>
+      <thead><tr><th>Nom</th><th>Statut</th></tr></thead>
+      <tbody>
+        {% for plan in plans %}
+        <tr>
+          <td>{{ plan.name }}</td>
+          <td><span class="bdg {{ 'actif' if plan.active else 'inactif' }}">{{ "Actif" if plan.active else "Désactivé" }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">Aucun plan de reprise configuré.</p>
+    {% endif %}
+  </div>
+</div>
 
-<section>
-  <h2>Jobs</h2>
-  <p class="empty">Aucun job pour le moment — l'exécution des jobs n'est pas encore implémentée.</p>
-</section>
+<div class="card">
+  <div class="phdr"><span class="stitle" style="font-size:14px">Jobs</span></div>
+  <div class="pbody">
+    <p class="empty">Aucun job pour le moment — l'exécution des jobs n'est pas encore implémentée.</p>
+  </div>
+</div>
 
-<section>
-  <h2>Alertes</h2>
-  <p class="empty">Aucune alerte — le test de validité des AK/SK n'est pas encore implémenté.</p>
-</section>
+<div class="card">
+  <div class="phdr"><span class="stitle" style="font-size:14px">Alertes</span></div>
+  <div class="pbody">
+    <p class="empty">Aucune alerte — le test de validité des AK/SK n'est pas encore implémenté.</p>
+  </div>
+</div>
 {% endblock %}

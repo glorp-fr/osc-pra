@@ -3,29 +3,51 @@
 <head>
   <meta charset="utf-8">
   <title>Osc-PRA</title>
+  <link rel="icon" href="/static/assets/favicon.png">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&family=Open+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   {% if user %}
-  <header class="topbar">
-    <span class="brand">Osc-PRA</span>
-    <nav>
-      <a href="/suivi">Suivi</a>
-      {% if user.is_admin %}
-      <a href="/admin/parametres">Paramètres</a>
-      <a href="/admin/comptes">Comptes</a>
-      <a href="/admin/plans">Plans</a>
-      {% endif %}
-    </nav>
-    <form method="post" action="/logout" class="logout-form">
-      <span>{{ user.username }}</span>
-      <button type="submit">Déconnexion</button>
-    </form>
-  </header>
+  <div class="layout">
+    <header class="hdr">
+      <div class="hdr-inner">
+        <div class="logo-wrap">
+          <img src="/static/assets/logo-outscale-blanc.svg" alt="OUTSCALE" height="26">
+          <div class="logo-text-sub">Osc-PRA</div>
+        </div>
+        <div class="hdr-spacer"></div>
+        <div class="hdr-user">
+          {{ user.username }}
+          <form method="post" action="/logout" style="max-width:none">
+            <button type="submit" class="btn ghost sm">Déconnexion</button>
+          </form>
+        </div>
+      </div>
+    </header>
+    <div class="layout-body">
+      <aside class="sidebar">
+        <div class="sb-section-title">Navigation</div>
+        <div class="sb-group">
+          <a href="/suivi" class="sb-btn{% if request.url.path == '/suivi' %} on{% endif %}">Suivi</a>
+        </div>
+        {% if user.is_admin %}
+        <div class="sb-section-title">Administration</div>
+        <div class="sb-group">
+          <a href="/admin/parametres" class="sb-btn{% if request.url.path == '/admin/parametres' %} on{% endif %}">Paramètres</a>
+          <a href="/admin/comptes" class="sb-btn{% if request.url.path == '/admin/comptes' %} on{% endif %}">Comptes</a>
+          <a href="/admin/plans" class="sb-btn{% if '/admin/plans' in request.url.path %} on{% endif %}">Plans</a>
+        </div>
+        {% endif %}
+      </aside>
+      <main class="content fade-in">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+  {% else %}
+  {% block login_content %}{% endblock %}
   {% endif %}
-  <main class="content">
-    {% block content %}{% endblock %}
-  </main>
 </body>
 </html>

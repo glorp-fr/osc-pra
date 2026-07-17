@@ -1,18 +1,23 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Supprimer le plan « {{ plan.name }} »</h1>
+<div class="stitle" style="margin-bottom:16px">Supprimer le plan « {{ plan.name }} »</div>
 
-<p class="warning">Cette action est irréversible.</p>
-<ul>
-  <li>Suppression des snapshots source : à implémenter</li>
-  <li>Suppression du VPC cible et de ses objets : à implémenter</li>
-  <li>Suppression des snapshots cible (si autre région) : à implémenter</li>
-  <li>Suppression des VMs cible (incluant les BSU) : à implémenter</li>
-</ul>
-<p>Pour l'instant, seule la suppression de la configuration du plan est effectuée.</p>
+<div class="err-banner" style="margin-bottom:16px;font-weight:600">Cette action est irréversible.</div>
 
-<form method="post" action="/admin/plans/{{ plan.id }}/supprimer">
-  <a href="/admin/plans" class="button">Annuler</a>
-  <button type="submit" class="danger">Confirmer la suppression</button>
+<div class="card">
+  <div class="pbody">
+    <ul style="padding-left:18px;display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--text-dim)">
+      <li>Suppression des snapshots source : à implémenter</li>
+      <li>Suppression du VPC cible et de ses objets : à implémenter</li>
+      <li>Suppression des snapshots cible (si autre région) : à implémenter</li>
+      <li>Suppression des VMs cible (incluant les BSU) : à implémenter</li>
+    </ul>
+    <p class="hint" style="margin-top:12px">Pour l'instant, seule la suppression de la configuration du plan est effectuée.</p>
+  </div>
+</div>
+
+<form method="post" action="/admin/plans/{{ plan.id }}/supprimer" style="flex-direction:row;gap:10px;max-width:none">
+  <a href="/admin/plans" class="btn ghost">Annuler</a>
+  <button type="submit" class="btn red">Confirmer la suppression</button>
 </form>
 {% endblock %}
