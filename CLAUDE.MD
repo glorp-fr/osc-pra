@@ -49,7 +49,8 @@ Les commandes OCTL sont schedulées directement via cron.
 ## Stack technique
 
 - Frontend : à choisir
-- Pas de BDD, stockage en JSON uniquement
+- Base de données : SQLite (fichier unique embarqué, sans serveur à gérer)
+  - *Remplace le stockage JSON brut initialement prévu : les jobs sont traités en parallèle (un job par VM), donc des écritures concurrentes sur un fichier JSON risquent la corruption. SQLite apporte les transactions ACID et le verrouillage nécessaires, tout en restant simple à déployer/sauvegarder (fichier unique)*
 - Utilisation d'OCTL
 - Scheduling via cron (appel direct des commandes OCTL)
 
@@ -66,6 +67,12 @@ Les commandes OCTL sont schedulées directement via cron.
 - Stockage de la configuration
   - Local
   - S3 : endpoint, bucket, AK/SK
+- Base de données
+  - Statut : santé de la connexion, taille du fichier, date de la dernière sauvegarde
+  - Sauvegarde vers bucket S3
+    - Réutilisation du bucket S3 de stockage de la configuration si déjà défini, sinon bucket/endpoint/AK-SK dédiés
+    - Sauvegarde manuelle (bouton) et planifiée (fréquence configurable, exécutée via cron comme les commandes OCTL)
+    - Nombre de sauvegardes à conserver
 
 #### 1 - Gestion des comptes
 
