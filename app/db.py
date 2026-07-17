@@ -54,6 +54,8 @@ def init_db() -> None:
             name TEXT NOT NULL UNIQUE,
             source_ak TEXT,
             source_sk_encrypted TEXT,
+            source_region TEXT,
+            selected_vms TEXT,
             target_type TEXT NOT NULL DEFAULT 'meme_region',
             target_region TEXT,
             sync_endpoint TEXT,

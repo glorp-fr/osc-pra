@@ -18,6 +18,24 @@ log "Installation des dépendances système"
 apt-get update -qq
 apt-get install -y -qq python3 python3-venv python3-pip sqlite3 curl >/dev/null
 
+log "Installation d'octl (CLI Outscale, https://github.com/outscale/octl)"
+if ! command -v octl >/dev/null 2>&1; then
+    case "$(uname -m)" in
+        x86_64)          OCTL_ASSET="octl_Linux_x86_64" ;;
+        aarch64|arm64)   OCTL_ASSET="octl_Linux_arm64" ;;
+        *)               OCTL_ASSET="" ;;
+    esac
+    if [ -n "$OCTL_ASSET" ]; then
+        curl -fsSL -o /usr/local/bin/octl \
+            "https://github.com/outscale/octl/releases/latest/download/${OCTL_ASSET}"
+        chmod +x /usr/local/bin/octl
+    else
+        warn "Architecture $(uname -m) non reconnue pour octl — installe-le manuellement depuis https://github.com/outscale/octl."
+    fi
+else
+    log "octl déjà installé ($(command -v octl))"
+fi
+
 log "Création de l'environnement virtuel Python"
 if [ ! -d "$APP_DIR/venv" ]; then
     python3 -m venv "$APP_DIR/venv"

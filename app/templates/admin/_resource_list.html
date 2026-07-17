@@ -1,0 +1,9 @@
+{% if error %}
+<p class="error">{{ error }}</p>
+{% elif items is none %}
+<p class="hint">Clique sur « Scanner » pour lancer la requête.</p>
+{% elif items|length == 0 %}
+<p class="empty">Aucune ressource trouvée.</p>
+{% else %}
+<pre class="raw-json">{{ items | tojson(indent=2) }}</pre>
+{% endif %}

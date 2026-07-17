@@ -1,0 +1,9 @@
+{% if message %}
+<p class="ak-status">{{ message }}</p>
+{% elif result.error %}
+<p class="ak-status error">Erreur : {{ result.error }}</p>
+{% elif result.valid %}
+<p class="ak-status success">Valide{% if result.expiration_date %} — expire le {{ result.expiration_date }}{% endif %}</p>
+{% else %}
+<p class="ak-status error">Non valide{% if result.expiration_date %} (expiré le {{ result.expiration_date }}){% endif %}</p>
+{% endif %}

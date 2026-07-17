@@ -25,6 +25,7 @@
           <button type="submit">Activer</button>
         </form>
         {% endif %}
+        <a href="/admin/plans/{{ plan.id }}/ressources" class="button">Ressources</a>
         <a href="/admin/plans/{{ plan.id }}/supprimer" class="button danger">Supprimer</a>
         <button type="button" disabled title="Aucune donnée de job disponible">Exporter le journal</button>
       </td>

@@ -11,9 +11,11 @@
 
   <fieldset>
     <legend>AK/SK source</legend>
+    <label>Région source <input type="text" name="source_region" placeholder="ex: eu-west-2"></label>
     <label>AK <input type="text" name="source_ak"></label>
     <label>SK <input type="password" name="source_sk"></label>
-    <p class="hint">Le test de validité de l'AK/SK n'est pas encore implémenté.</p>
+    <button type="button" hx-post="/admin/plans/octl/test-ak" hx-include="closest form" hx-target="#ak-status" hx-swap="innerHTML">Tester l'AK/SK</button>
+    <div id="ak-status"></div>
   </fieldset>
 
   <fieldset>
@@ -36,7 +38,8 @@
 
   <fieldset>
     <legend>VMs à répliquer</legend>
-    <p class="hint">La sélection des VMs sera disponible après le scan du compte (fonctionnalité à venir).</p>
+    <button type="button" hx-post="/admin/plans/octl/scan-vms" hx-include="closest form" hx-target="#vm-list" hx-swap="innerHTML">Scanner les VMs</button>
+    <div id="vm-list"><p class="hint">Renseigne l'AK, le SK et la région source ci-dessus puis clique sur « Scanner les VMs ».</p></div>
   </fieldset>
 
   <fieldset>

@@ -125,3 +125,27 @@ button.danger, .button.danger {
   opacity: 0.7;
   font-style: italic;
 }
+
+.ak-status.success {
+  color: #1b7f3a;
+}
+
+.ak-status.error {
+  color: #b00020;
+}
+
+.checkbox-list {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.raw-json {
+  background: color-mix(in srgb, CanvasText 6%, transparent);
+  padding: 0.75rem;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 0.85rem;
+}

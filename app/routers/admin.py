@@ -1,9 +1,12 @@
+import json
+
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse
 from passlib.hash import bcrypt
 
+from app import octl
 from app.auth import require_admin
-from app.crypto import encrypt
+from app.crypto import decrypt, encrypt
 from app.db import get_connection
 from app.templates_env import templates
 
@@ -184,6 +187,8 @@ def plan_new_submit(
     name: str = Form(...),
     source_ak: str = Form(""),
     source_sk: str = Form(""),
+    source_region: str = Form(""),
+    selected_vms: list[str] = Form([]),
     target_type: str = Form("meme_region"),
     target_region: str = Form(""),
     sync_endpoint: str = Form(""),
@@ -203,15 +208,15 @@ def plan_new_submit(
         conn.execute(
             """
             INSERT INTO plans (
-                name, source_ak, source_sk_encrypted, target_type, target_region,
-                sync_endpoint, sync_bucket, sync_ak, sync_sk_encrypted,
-                target_retain_count, snapshot_frequency, source_retain_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                name, source_ak, source_sk_encrypted, source_region, selected_vms,
+                target_type, target_region, sync_endpoint, sync_bucket, sync_ak,
+                sync_sk_encrypted, target_retain_count, snapshot_frequency, source_retain_count
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                name, source_ak, encrypt(source_sk), target_type, target_region,
-                sync_endpoint, sync_bucket, sync_ak, encrypt(sync_sk),
-                target_retain_count, snapshot_frequency, source_retain_count,
+                name, source_ak, encrypt(source_sk), source_region, json.dumps(selected_vms),
+                target_type, target_region, sync_endpoint, sync_bucket, sync_ak,
+                encrypt(sync_sk), target_retain_count, snapshot_frequency, source_retain_count,
             ),
         )
         conn.commit()
@@ -224,6 +229,59 @@ def plan_new_submit(
         )
     conn.close()
     return RedirectResponse("/admin/plans", status_code=303)
+
+
+@router.post("/plans/octl/test-ak")
+def plan_test_ak(request: Request, ak: str = Form(""), sk: str = Form(""), region: str = Form("")):
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    if not (ak and sk and region):
+        return templates.TemplateResponse(
+            "admin/_ak_status.html",
+            {"request": request, "result": None, "message": "AK, SK et région requis pour tester."},
+        )
+
+    if not octl.is_available():
+        return templates.TemplateResponse(
+            "admin/_ak_status.html",
+            {"request": request, "result": None, "message": "octl n'est pas installé sur ce serveur."},
+        )
+
+    result = octl.check_access_key(ak, sk, region)
+    return templates.TemplateResponse(
+        "admin/_ak_status.html", {"request": request, "result": result, "message": None}
+    )
+
+
+@router.post("/plans/octl/scan-vms")
+def plan_scan_vms(request: Request, ak: str = Form(""), sk: str = Form(""), region: str = Form("")):
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    if not (ak and sk and region):
+        return templates.TemplateResponse(
+            "admin/_vm_list.html",
+            {"request": request, "vms": None, "error": "AK, SK et région requis pour scanner."},
+        )
+
+    if not octl.is_available():
+        return templates.TemplateResponse(
+            "admin/_vm_list.html", {"request": request, "vms": None, "error": "octl n'est pas installé sur ce serveur."}
+        )
+
+    try:
+        vms = octl.list_vms(ak, sk, region)
+        error = None
+    except octl.OctlError as exc:
+        vms = None
+        error = str(exc)
+
+    return templates.TemplateResponse(
+        "admin/_vm_list.html", {"request": request, "vms": vms, "error": error}
+    )
 
 
 @router.post("/plans/{plan_id}/desactiver")
@@ -280,3 +338,74 @@ def plan_delete(request: Request, plan_id: int):
     conn.commit()
     conn.close()
     return RedirectResponse("/admin/plans", status_code=303)
+
+
+# --- Ressources (scan via octl) --------------------------------------------
+
+RESOURCE_SCANS = {
+    "subnets": octl.list_subnets,
+    "security-groups": octl.list_security_groups,
+    "route-tables": octl.list_route_tables,
+}
+
+
+@router.get("/plans/{plan_id}/ressources")
+def plan_resources(request: Request, plan_id: int):
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    conn = get_connection()
+    plan = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    conn.close()
+    if plan is None:
+        return RedirectResponse("/admin/plans", status_code=303)
+
+    return templates.TemplateResponse(
+        "admin/plan_ressources.html",
+        {"request": request, "user": user, "plan": plan, "octl_available": octl.is_available()},
+    )
+
+
+@router.post("/plans/{plan_id}/ressources/scan/{resource_type}")
+def plan_resources_scan(request: Request, plan_id: int, resource_type: str):
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    scan_fn = RESOURCE_SCANS.get(resource_type)
+    if scan_fn is None:
+        return templates.TemplateResponse(
+            "admin/_resource_list.html", {"request": request, "items": None, "error": "Type de ressource inconnu."}
+        )
+
+    conn = get_connection()
+    plan = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    conn.close()
+    if plan is None:
+        return templates.TemplateResponse(
+            "admin/_resource_list.html", {"request": request, "items": None, "error": "Plan introuvable."}
+        )
+
+    if not octl.is_available():
+        return templates.TemplateResponse(
+            "admin/_resource_list.html",
+            {"request": request, "items": None, "error": "octl n'est pas installé sur ce serveur."},
+        )
+
+    if not (plan["source_ak"] and plan["source_sk_encrypted"] and plan["source_region"]):
+        return templates.TemplateResponse(
+            "admin/_resource_list.html",
+            {"request": request, "items": None, "error": "AK/SK/région source non configurés pour ce plan."},
+        )
+
+    try:
+        items = scan_fn(plan["source_ak"], decrypt(plan["source_sk_encrypted"]), plan["source_region"])
+        error = None
+    except octl.OctlError as exc:
+        items = None
+        error = str(exc)
+
+    return templates.TemplateResponse(
+        "admin/_resource_list.html", {"request": request, "items": items, "error": error}
+    )

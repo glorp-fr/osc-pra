@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Ressources du compte — {{ plan.name }}</h1>
+<p><a href="/admin/plans">&larr; Retour aux plans</a></p>
+
+{% if not octl_available %}
+<p class="error">octl n'est pas installé sur ce serveur — les scans échoueront.</p>
+{% endif %}
+{% if not (plan.source_ak and plan.source_sk_encrypted and plan.source_region) %}
+<p class="error">AK/SK/région source non configurés pour ce plan — modifie-le pour pouvoir scanner.</p>
+{% endif %}
+
+<section>
+  <h2>Subnets</h2>
+  <button hx-post="/admin/plans/{{ plan.id }}/ressources/scan/subnets" hx-target="#subnets-result" hx-swap="innerHTML">Scanner</button>
+  <div id="subnets-result"><p class="hint">Pas encore scanné.</p></div>
+</section>
+
+<section>
+  <h2>Security groups</h2>
+  <button hx-post="/admin/plans/{{ plan.id }}/ressources/scan/security-groups" hx-target="#sg-result" hx-swap="innerHTML">Scanner</button>
+  <div id="sg-result"><p class="hint">Pas encore scanné.</p></div>
+</section>
+
+<section>
+  <h2>Route tables</h2>
+  <button hx-post="/admin/plans/{{ plan.id }}/ressources/scan/route-tables" hx-target="#rt-result" hx-swap="innerHTML">Scanner</button>
+  <div id="rt-result"><p class="hint">Pas encore scanné.</p></div>
+</section>
+{% endblock %}

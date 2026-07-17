@@ -52,7 +52,9 @@ Les commandes OCTL sont schedulées directement via cron.
 - Frontend : rendu serveur Jinja2 + htmx (pas de build JS séparé)
 - Base de données : SQLite (fichier unique embarqué, sans serveur à gérer)
   - *Remplace le stockage JSON brut initialement prévu : les jobs sont traités en parallèle (un job par VM), donc des écritures concurrentes sur un fichier JSON risquent la corruption. SQLite apporte les transactions ACID et le verrouillage nécessaires, tout en restant simple à déployer/sauvegarder (fichier unique)*
-- Utilisation d'OCTL
+- Utilisation d'OCTL (https://github.com/outscale/octl)
+  - Invocation : `octl iaas api <Action> --output json`, credentials passés par variables d'environnement (OSC_ACCESS_KEY/OSC_SECRET_KEY/OSC_REGION) par appel, jamais écrits sur disque
+  - *Syntaxe vérifiée via la doc officielle du dépôt, mais pas encore testée contre un octl réel ni un compte Outscale valide — à valider en conditions réelles*
 - Scheduling via cron (appel direct des commandes OCTL)
 
 ## Application

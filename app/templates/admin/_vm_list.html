@@ -1,0 +1,19 @@
+{% if error %}
+<p class="error">{{ error }}</p>
+{% elif vms is none %}
+<p class="hint">Renseigne l'AK, le SK et la région source ci-dessus puis clique sur « Scanner les VMs ».</p>
+{% elif vms|length == 0 %}
+<p class="empty">Aucune VM trouvée sur ce compte/région.</p>
+{% else %}
+<ul class="checkbox-list">
+  {% for vm in vms %}
+  <li>
+    <label class="checkbox">
+      <input type="checkbox" name="selected_vms" value="{{ vm.VmId }}">
+      {{ vm.VmId }} — {{ vm.Tags | selectattr("Key", "equalto", "Name") | map(attribute="Value") | first | default(vm.VmId) }}
+      ({{ vm.VmState }})
+    </label>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
