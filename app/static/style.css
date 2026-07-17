@@ -1,16 +1,127 @@
+:root {
+  color-scheme: light dark;
+}
+
 body {
   font-family: system-ui, sans-serif;
+  margin: 0;
+}
+
+.login {
   max-width: 480px;
   margin: 4rem auto;
 }
 
-.login form,
-main form {
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid CanvasText;
+}
+
+.topbar .brand {
+  font-weight: bold;
+}
+
+.topbar nav {
+  display: flex;
+  gap: 1rem;
+  flex: 1;
+}
+
+.logout-form {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.content {
+  max-width: 960px;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 480px;
+}
+
+fieldset {
+  border: 1px solid color-mix(in srgb, CanvasText 30%, transparent);
+  border-radius: 4px;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
 }
 
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+label.checkbox {
+  flex-direction: row;
+  align-items: center;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-bottom: 1.5rem;
+}
+
+th, td {
+  text-align: left;
+  padding: 0.5rem;
+  border-bottom: 1px solid color-mix(in srgb, CanvasText 20%, transparent);
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.actions form {
+  display: inline;
+}
+
+.button {
+  display: inline-block;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid CanvasText;
+  border-radius: 4px;
+  text-decoration: none;
+  color: inherit;
+  width: fit-content;
+}
+
+button, .button {
+  cursor: pointer;
+}
+
+button.danger, .button.danger {
+  border-color: #b00020;
+  color: #b00020;
+}
+
 .error {
   color: #b00020;
+}
+
+.success {
+  color: #1b7f3a;
+}
+
+.warning {
+  color: #b00020;
+  font-weight: bold;
+}
+
+.empty, .hint {
+  opacity: 0.7;
+  font-style: italic;
 }

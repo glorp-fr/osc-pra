@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Gestion des comptes</h1>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+<table>
+  <thead>
+    <tr><th>Utilisateur</th><th>Rôle</th><th>Créé le</th></tr>
+  </thead>
+  <tbody>
+    {% for account in accounts %}
+    <tr>
+      <td>{{ account.username }}</td>
+      <td>{{ "Admin" if account.is_admin else "Opérateur" }}</td>
+      <td>{{ account.created_at }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Créer un compte</h2>
+<form method="post" action="/admin/comptes">
+  <label>Utilisateur <input type="text" name="username" required></label>
+  <label>Mot de passe <input type="password" name="password" required minlength="8"></label>
+  <label class="checkbox"><input type="checkbox" name="is_admin" value="true"> Compte admin</label>
+  <button type="submit">Créer</button>
+</form>
+{% endblock %}

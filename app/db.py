@@ -25,5 +25,48 @@ def init_db() -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS settings (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            mail_from TEXT,
+            mail_to TEXT,
+            smtp_server TEXT,
+            storage_mode TEXT NOT NULL DEFAULT 'local',
+            s3_endpoint TEXT,
+            s3_bucket TEXT,
+            s3_ak TEXT,
+            s3_sk_encrypted TEXT,
+            backup_bucket_mode TEXT NOT NULL DEFAULT 'reuse',
+            backup_endpoint TEXT,
+            backup_bucket TEXT,
+            backup_ak TEXT,
+            backup_sk_encrypted TEXT,
+            backup_frequency TEXT,
+            backup_retain_count INTEGER
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS plans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            source_ak TEXT,
+            source_sk_encrypted TEXT,
+            target_type TEXT NOT NULL DEFAULT 'meme_region',
+            target_region TEXT,
+            sync_endpoint TEXT,
+            sync_bucket TEXT,
+            sync_ak TEXT,
+            sync_sk_encrypted TEXT,
+            target_retain_count INTEGER,
+            snapshot_frequency TEXT,
+            source_retain_count INTEGER,
+            active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
     conn.commit()
     conn.close()

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Plans de reprise</h1>
+
+<a href="/admin/plans/nouveau" class="button">+ Nouveau plan</a>
+
+{% if plans %}
+<table>
+  <thead>
+    <tr><th>Nom</th><th>Cible</th><th>Statut</th><th>Actions</th></tr>
+  </thead>
+  <tbody>
+    {% for plan in plans %}
+    <tr>
+      <td>{{ plan.name }}</td>
+      <td>{{ "Même région" if plan.target_type == "meme_region" else "Autre région (" ~ plan.target_region ~ ")" }}</td>
+      <td>{{ "Actif" if plan.active else "Désactivé" }}</td>
+      <td class="actions">
+        {% if plan.active %}
+        <form method="post" action="/admin/plans/{{ plan.id }}/desactiver">
+          <button type="submit">Désactiver</button>
+        </form>
+        {% else %}
+        <form method="post" action="/admin/plans/{{ plan.id }}/activer">
+          <button type="submit">Activer</button>
+        </form>
+        {% endif %}
+        <a href="/admin/plans/{{ plan.id }}/supprimer" class="button danger">Supprimer</a>
+        <button type="button" disabled title="Aucune donnée de job disponible">Exporter le journal</button>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">Aucun plan de reprise configuré.</p>
+{% endif %}
+{% endblock %}

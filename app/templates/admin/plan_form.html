@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Nouveau plan de reprise</h1>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+<form method="post" action="/admin/plans/nouveau">
+  <fieldset>
+    <legend>Général</legend>
+    <label>Nom du plan <input type="text" name="name" required></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>AK/SK source</legend>
+    <label>AK <input type="text" name="source_ak"></label>
+    <label>SK <input type="password" name="source_sk"></label>
+    <p class="hint">Le test de validité de l'AK/SK n'est pas encore implémenté.</p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Cible de réplication</legend>
+    <label>
+      <select name="target_type" id="target_type" onchange="document.getElementById('cross-region-fields').hidden = this.value !== 'autre_region'">
+        <option value="meme_region">Même région</option>
+        <option value="autre_region">Autre région</option>
+      </select>
+    </label>
+    <div id="cross-region-fields" hidden>
+      <label>Région <input type="text" name="target_region" placeholder="ex: eu-west-2"></label>
+      <label>Endpoint S3 de synchro <input type="text" name="sync_endpoint"></label>
+      <label>Bucket S3 de synchro <input type="text" name="sync_bucket"></label>
+      <label>AK S3 <input type="text" name="sync_ak"></label>
+      <label>SK S3 <input type="password" name="sync_sk"></label>
+      <label>Snapshots à conserver côté cible <input type="number" min="1" name="target_retain_count" value="7"></label>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>VMs à répliquer</legend>
+    <p class="hint">La sélection des VMs sera disponible après le scan du compte (fonctionnalité à venir).</p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Snapshots côté production</legend>
+    <label>Fréquence de snapshot <input type="text" name="snapshot_frequency" placeholder="ex: quotidienne" required></label>
+    <label>Snapshots à conserver <input type="number" min="1" name="source_retain_count" value="7"></label>
+  </fieldset>
+
+  <button type="submit">Créer le plan</button>
+</form>
+{% endblock %}

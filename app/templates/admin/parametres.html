@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Paramètres globaux</h1>
+{% if saved %}<p class="success">Paramètres enregistrés.</p>{% endif %}
+
+<form method="post" action="/admin/parametres">
+  <fieldset>
+    <legend>Messagerie</legend>
+    <label>Email source <input type="email" name="mail_from" value="{{ settings.mail_from if settings else '' }}"></label>
+    <label>Email cible <input type="email" name="mail_to" value="{{ settings.mail_to if settings else '' }}"></label>
+    <label>Serveur SMTP <input type="text" name="smtp_server" value="{{ settings.smtp_server if settings else '' }}"></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Stockage de la configuration</legend>
+    <label>Mode
+      <select name="storage_mode">
+        <option value="local" {{ "selected" if settings and settings.storage_mode == "local" else "" }}>Local</option>
+        <option value="s3" {{ "selected" if settings and settings.storage_mode == "s3" else "" }}>S3</option>
+      </select>
+    </label>
+    <label>Endpoint S3 <input type="text" name="s3_endpoint" value="{{ settings.s3_endpoint if settings else '' }}"></label>
+    <label>Bucket S3 <input type="text" name="s3_bucket" value="{{ settings.s3_bucket if settings else '' }}"></label>
+    <label>AK <input type="text" name="s3_ak" value="{{ settings.s3_ak if settings else '' }}"></label>
+    <label>SK <input type="password" name="s3_sk" placeholder="{{ '••••••••' if settings and settings.s3_sk_encrypted else '' }}"></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Base de données</legend>
+    <p>Statut : <strong>connectée</strong> (SQLite)</p>
+    <label>Sauvegarde vers
+      <select name="backup_bucket_mode">
+        <option value="reuse" {{ "selected" if settings and settings.backup_bucket_mode == "reuse" else "" }}>Bucket de stockage de la configuration (ci-dessus)</option>
+        <option value="dedicated" {{ "selected" if settings and settings.backup_bucket_mode == "dedicated" else "" }}>Bucket dédié</option>
+      </select>
+    </label>
+    <div class="dedicated-backup-fields">
+      <label>Endpoint S3 <input type="text" name="backup_endpoint" value="{{ settings.backup_endpoint if settings else '' }}"></label>
+      <label>Bucket S3 <input type="text" name="backup_bucket" value="{{ settings.backup_bucket if settings else '' }}"></label>
+      <label>AK <input type="text" name="backup_ak" value="{{ settings.backup_ak if settings else '' }}"></label>
+      <label>SK <input type="password" name="backup_sk" placeholder="{{ '••••••••' if settings and settings.backup_sk_encrypted else '' }}"></label>
+    </div>
+    <label>Fréquence de sauvegarde <input type="text" name="backup_frequency" placeholder="ex: quotidienne" value="{{ settings.backup_frequency if settings else '' }}"></label>
+    <label>Sauvegardes à conserver <input type="number" min="1" name="backup_retain_count" value="{{ settings.backup_retain_count if settings else 7 }}"></label>
+  </fieldset>
+
+  <button type="submit">Enregistrer</button>
+</form>
+{% endblock %}

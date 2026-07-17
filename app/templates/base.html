@@ -7,6 +7,25 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  {% block content %}{% endblock %}
+  {% if user %}
+  <header class="topbar">
+    <span class="brand">Osc-PRA</span>
+    <nav>
+      <a href="/suivi">Suivi</a>
+      {% if user.is_admin %}
+      <a href="/admin/parametres">Paramètres</a>
+      <a href="/admin/comptes">Comptes</a>
+      <a href="/admin/plans">Plans</a>
+      {% endif %}
+    </nav>
+    <form method="post" action="/logout" class="logout-form">
+      <span>{{ user.username }}</span>
+      <button type="submit">Déconnexion</button>
+    </form>
+  </header>
+  {% endif %}
+  <main class="content">
+    {% block content %}{% endblock %}
+  </main>
 </body>
 </html>

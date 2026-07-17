@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Suivi</h1>
+
+<section>
+  <h2>Plans de reprise</h2>
+  {% if plans %}
+  <table>
+    <thead>
+      <tr><th>Nom</th><th>Statut</th></tr>
+    </thead>
+    <tbody>
+      {% for plan in plans %}
+      <tr>
+        <td>{{ plan.name }}</td>
+        <td>{{ "Actif" if plan.active else "Désactivé" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">Aucun plan de reprise configuré.</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Jobs</h2>
+  <p class="empty">Aucun job pour le moment — l'exécution des jobs n'est pas encore implémentée.</p>
+</section>
+
+<section>
+  <h2>Alertes</h2>
+  <p class="empty">Aucune alerte — le test de validité des AK/SK n'est pas encore implémenté.</p>
+</section>
+{% endblock %}
