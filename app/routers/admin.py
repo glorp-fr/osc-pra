@@ -368,6 +368,20 @@ def compte_delete(request: Request, account_id: int):
 
 # --- Plans de reprise -------------------------------------------------------
 
+def _resolve_source_sk(source_sk: str, plan_id: str) -> str:
+    """Le champ SK n'est jamais réaffiché en clair : s'il est laissé vide sur
+    un plan existant, on retombe sur le SK déjà enregistré (déchiffré)."""
+    if source_sk or not plan_id:
+        return source_sk
+
+    conn = get_connection()
+    plan = conn.execute("SELECT source_sk_encrypted FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    conn.close()
+    if plan and plan["source_sk_encrypted"]:
+        return decrypt(plan["source_sk_encrypted"])
+    return source_sk
+
+
 @router.get("/plans")
 def plans_list(request: Request, message: str | None = None, error: str | None = None):
     user = require_admin(request)
@@ -557,10 +571,18 @@ def plan_edit_submit(
 
 
 @router.post("/plans/octl/test-ak")
-def plan_test_ak(request: Request, source_ak: str = Form(""), source_sk: str = Form(""), source_region: str = Form("")):
+def plan_test_ak(
+    request: Request,
+    source_ak: str = Form(""),
+    source_sk: str = Form(""),
+    source_region: str = Form(""),
+    plan_id: str = Form(""),
+):
     user = require_admin(request)
     if isinstance(user, RedirectResponse):
         return user
+
+    source_sk = _resolve_source_sk(source_sk, plan_id)
 
     if not (source_ak and source_sk and source_region):
         return templates.TemplateResponse(
@@ -587,10 +609,13 @@ def plan_scan_vms(
     source_sk: str = Form(""),
     source_region: str = Form(""),
     existing_selected_vms: str = Form("[]"),
+    plan_id: str = Form(""),
 ):
     user = require_admin(request)
     if isinstance(user, RedirectResponse):
         return user
+
+    source_sk = _resolve_source_sk(source_sk, plan_id)
 
     try:
         selected_ids = set(json.loads(existing_selected_vms))
