@@ -11,6 +11,9 @@ EXPECTED_COLUMNS = {
         "source_region": "TEXT",
         "selected_vms": "TEXT",
     },
+    "users": {
+        "role": "TEXT NOT NULL DEFAULT 'operateur'",
+    },
 }
 
 
@@ -28,6 +31,8 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         for column, col_type in columns.items():
             if column not in existing:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+                if table == "users" and column == "role":
+                    conn.execute("UPDATE users SET role = 'admin' WHERE is_admin = 1")
 
 
 def init_db() -> None:
@@ -39,6 +44,7 @@ def init_db() -> None:
             username TEXT NOT NULL UNIQUE,
             password_hash TEXT NOT NULL,
             is_admin INTEGER NOT NULL DEFAULT 0,
+            role TEXT NOT NULL DEFAULT 'operateur',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
         """

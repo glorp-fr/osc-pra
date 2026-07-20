@@ -32,9 +32,9 @@ def main() -> None:
     conn = get_connection()
     conn.execute(
         """
-        INSERT INTO users (username, password_hash, is_admin)
-        VALUES (?, ?, 1)
-        ON CONFLICT(username) DO UPDATE SET password_hash = excluded.password_hash
+        INSERT INTO users (username, password_hash, is_admin, role)
+        VALUES (?, ?, 1, 'admin')
+        ON CONFLICT(username) DO UPDATE SET password_hash = excluded.password_hash, role = 'admin'
         """,
         (username, bcrypt.hash(password)),
     )

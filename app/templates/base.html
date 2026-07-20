@@ -32,7 +32,7 @@
         <div class="sb-group">
           <a href="/suivi" class="sb-btn{% if request.url.path == '/suivi' %} on{% endif %}">Suivi</a>
         </div>
-        {% if user.is_admin %}
+        {% if user.role == "admin" %}
         <div class="sb-section-title">Administration</div>
         <div class="sb-group">
           <a href="/admin/parametres" class="sb-btn{% if request.url.path == '/admin/parametres' %} on{% endif %}">Paramètres</a>

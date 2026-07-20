@@ -5,7 +5,7 @@ from fastapi.responses import RedirectResponse
 from passlib.hash import bcrypt
 
 from app import octl, scheduling
-from app.auth import require_admin
+from app.auth import ROLE_LABELS, ROLES, require_admin
 from app.crypto import decrypt, encrypt
 from app.db import get_connection
 from app.templates_env import templates
@@ -112,20 +112,28 @@ def parametres_submit(
 # --- Gestion des comptes ---------------------------------------------------
 
 @router.get("/comptes")
-def comptes_list(request: Request, error: str | None = None):
+def comptes_list(request: Request, error: str | None = None, message: str | None = None):
     user = require_admin(request)
     if isinstance(user, RedirectResponse):
         return user
 
     conn = get_connection()
     accounts = conn.execute(
-        "SELECT id, username, is_admin, created_at FROM users ORDER BY username"
+        "SELECT id, username, role, created_at FROM users ORDER BY username"
     ).fetchall()
     conn.close()
 
     return templates.TemplateResponse(
         "admin/comptes.html",
-        {"request": request, "user": user, "accounts": accounts, "error": error},
+        {
+            "request": request,
+            "user": user,
+            "accounts": accounts,
+            "error": error,
+            "message": message,
+            "roles": ROLES,
+            "role_labels": ROLE_LABELS,
+        },
     )
 
 
@@ -134,7 +142,7 @@ def comptes_create(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
-    is_admin: bool = Form(False),
+    role: str = Form("operateur"),
 ):
     user = require_admin(request)
     if isinstance(user, RedirectResponse):
@@ -146,11 +154,14 @@ def comptes_create(
             status_code=303,
         )
 
+    if role not in ROLES:
+        role = "operateur"
+
     conn = get_connection()
     try:
         conn.execute(
-            "INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, ?)",
-            (username, bcrypt.hash(password), int(is_admin)),
+            "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+            (username, bcrypt.hash(password), role),
         )
         conn.commit()
     except Exception:
@@ -158,6 +169,141 @@ def comptes_create(
         return RedirectResponse(
             "/admin/comptes?error=Ce+nom+d%27utilisateur+existe+déjà", status_code=303
         )
+    conn.close()
+    return RedirectResponse("/admin/comptes", status_code=303)
+
+
+@router.post("/comptes/{account_id}/role")
+def comptes_update_role(request: Request, account_id: int, role: str = Form(...)):
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    if role not in ROLES:
+        return RedirectResponse("/admin/comptes?error=Rôle+invalide", status_code=303)
+
+    conn = get_connection()
+    target = conn.execute("SELECT * FROM users WHERE id = ?", (account_id,)).fetchone()
+    if target is None:
+        conn.close()
+        return RedirectResponse("/admin/comptes", status_code=303)
+
+    if target["role"] == "admin" and role != "admin":
+        remaining_admins = conn.execute(
+            "SELECT COUNT(*) AS c FROM users WHERE role = 'admin' AND id != ?", (account_id,)
+        ).fetchone()["c"]
+        if remaining_admins == 0:
+            conn.close()
+            return RedirectResponse(
+                "/admin/comptes?error=Impossible+de+retirer+le+dernier+compte+admin", status_code=303
+            )
+
+    conn.execute("UPDATE users SET role = ? WHERE id = ?", (role, account_id))
+    conn.commit()
+    conn.close()
+    return RedirectResponse("/admin/comptes", status_code=303)
+
+
+@router.get("/comptes/{account_id}/reinitialiser")
+def compte_reset_password_form(request: Request, account_id: int, error: str | None = None):
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    conn = get_connection()
+    account = conn.execute("SELECT * FROM users WHERE id = ?", (account_id,)).fetchone()
+    conn.close()
+    if account is None:
+        return RedirectResponse("/admin/comptes", status_code=303)
+
+    return templates.TemplateResponse(
+        "admin/compte_reset_password.html",
+        {"request": request, "user": user, "account": account, "error": error},
+    )
+
+
+@router.post("/comptes/{account_id}/reinitialiser")
+def compte_reset_password_submit(
+    request: Request,
+    account_id: int,
+    password: str = Form(...),
+    password_confirm: str = Form(...),
+):
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    if password != password_confirm:
+        return RedirectResponse(
+            f"/admin/comptes/{account_id}/reinitialiser?error=Les+mots+de+passe+ne+correspondent+pas",
+            status_code=303,
+        )
+    if len(password) < 8:
+        return RedirectResponse(
+            f"/admin/comptes/{account_id}/reinitialiser?error=Le+mot+de+passe+doit+faire+au+moins+8+caractères",
+            status_code=303,
+        )
+
+    conn = get_connection()
+    account = conn.execute("SELECT * FROM users WHERE id = ?", (account_id,)).fetchone()
+    if account is None:
+        conn.close()
+        return RedirectResponse("/admin/comptes", status_code=303)
+
+    conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (bcrypt.hash(password), account_id))
+    conn.commit()
+    conn.close()
+    return RedirectResponse("/admin/comptes?message=Mot+de+passe+réinitialisé", status_code=303)
+
+
+@router.get("/comptes/{account_id}/supprimer")
+def compte_delete_confirm(request: Request, account_id: int):
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    conn = get_connection()
+    account = conn.execute("SELECT * FROM users WHERE id = ?", (account_id,)).fetchone()
+    conn.close()
+    if account is None:
+        return RedirectResponse("/admin/comptes", status_code=303)
+
+    return templates.TemplateResponse(
+        "admin/compte_delete_confirm.html",
+        {"request": request, "user": user, "account": account},
+    )
+
+
+@router.post("/comptes/{account_id}/supprimer")
+def compte_delete(request: Request, account_id: int):
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    conn = get_connection()
+    target = conn.execute("SELECT * FROM users WHERE id = ?", (account_id,)).fetchone()
+    if target is None:
+        conn.close()
+        return RedirectResponse("/admin/comptes", status_code=303)
+
+    if target["username"] == user["username"]:
+        conn.close()
+        return RedirectResponse(
+            "/admin/comptes?error=Impossible+de+supprimer+votre+propre+compte", status_code=303
+        )
+
+    if target["role"] == "admin":
+        remaining_admins = conn.execute(
+            "SELECT COUNT(*) AS c FROM users WHERE role = 'admin' AND id != ?", (account_id,)
+        ).fetchone()["c"]
+        if remaining_admins == 0:
+            conn.close()
+            return RedirectResponse(
+                "/admin/comptes?error=Impossible+de+supprimer+le+dernier+compte+admin", status_code=303
+            )
+
+    conn.execute("DELETE FROM users WHERE id = ?", (account_id,))
+    conn.commit()
     conn.close()
     return RedirectResponse("/admin/comptes", status_code=303)
 

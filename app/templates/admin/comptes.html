@@ -2,17 +2,34 @@
 {% block content %}
 <div class="stitle" style="margin-bottom:16px">Gestion des comptes</div>
 {% if error %}<div class="err-banner" style="margin-bottom:16px">{{ error }}</div>{% endif %}
+{% if message %}<div class="ok-banner" style="margin-bottom:16px">{{ message }}</div>{% endif %}
 
 <div class="card">
   <div class="pbody">
     <table>
-      <thead><tr><th>Utilisateur</th><th>Rôle</th><th>Créé le</th></tr></thead>
+      <thead><tr><th>Utilisateur</th><th>Rôle</th><th>Créé le</th><th>Actions</th></tr></thead>
       <tbody>
         {% for account in accounts %}
         <tr>
           <td>{{ account.username }}</td>
-          <td><span class="bdg {{ 'admin' if account.is_admin else 'operateur' }}">{{ "Admin" if account.is_admin else "Opérateur" }}</span></td>
+          <td><span class="bdg {{ account.role }}">{{ role_labels[account.role] }}</span></td>
           <td class="mono" style="font-size:11px;color:var(--text-muted)">{{ account.created_at }}</td>
+          <td class="actions">
+            <form method="post" action="/admin/comptes/{{ account.id }}/role" style="display:inline-flex;align-items:center;gap:6px;max-width:none">
+              <select name="role" style="width:auto">
+                {% for r in roles %}
+                <option value="{{ r }}" {{ "selected" if r == account.role else "" }}>{{ role_labels[r] }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit" class="btn sm ghost">Modifier</button>
+            </form>
+            <a href="/admin/comptes/{{ account.id }}/reinitialiser" class="btn sm ghost">Réinitialiser le mot de passe</a>
+            {% if account.username != user.username %}
+            <a href="/admin/comptes/{{ account.id }}/supprimer" class="btn sm red">Supprimer</a>
+            {% else %}
+            <button type="button" class="btn sm ghost" disabled data-tooltip="Impossible de supprimer votre propre compte">Supprimer</button>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -26,7 +43,13 @@
     <form method="post" action="/admin/comptes">
       <label>Utilisateur <input type="text" name="username" required></label>
       <label>Mot de passe <input type="password" name="password" required minlength="8"></label>
-      <label class="checkbox"><input type="checkbox" name="is_admin" value="true"> Compte admin</label>
+      <label>Rôle
+        <select name="role">
+          {% for r in roles %}
+          <option value="{{ r }}" {{ "selected" if r == "operateur" else "" }}>{{ role_labels[r] }}</option>
+          {% endfor %}
+        </select>
+      </label>
       <button type="submit" class="btn blue">Créer</button>
     </form>
   </div>

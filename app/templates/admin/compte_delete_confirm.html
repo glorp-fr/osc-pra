@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="stitle" style="margin-bottom:16px">Supprimer le compte « {{ account.username }} »</div>
+
+<div class="err-banner" style="margin-bottom:16px;font-weight:600">Cette action est irréversible.</div>
+
+<form method="post" action="/admin/comptes/{{ account.id }}/supprimer" style="flex-direction:row;gap:10px;max-width:none">
+  <a href="/admin/comptes" class="btn ghost">Annuler</a>
+  <button type="submit" class="btn red">Confirmer la suppression</button>
+</form>
+{% endblock %}

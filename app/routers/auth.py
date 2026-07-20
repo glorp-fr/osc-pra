@@ -27,7 +27,7 @@ def login_submit(request: Request, username: str = Form(...), password: str = Fo
         )
 
     request.session["user"] = username
-    request.session["is_admin"] = bool(row["is_admin"])
+    request.session["role"] = row["role"]
     return RedirectResponse("/suivi", status_code=303)
 
 
