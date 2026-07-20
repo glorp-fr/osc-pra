@@ -88,6 +88,9 @@ Les commandes OCTL sont schedulées directement via cron.
 
 - Nom du plan
 - Définition AK/SK
+- VPC source, issu du scan du compte (NetId + tag Name), sélection unique
+- Bouton pour créer le VPC cible à l'identique (même IpRange), sur le compte
+  source (même région) ou le compte cible (autre région)
 - Cible de réplication
   - Même région
   - Autre région (liste de choix des régions Outscale)
