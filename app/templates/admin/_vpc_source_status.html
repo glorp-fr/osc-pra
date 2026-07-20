@@ -1,0 +1,5 @@
+{% if error %}
+<div class="err-banner">{{ error }}</div>
+{% elif vpc_id %}
+<div class="ak-status success">VPC source enregistré : {{ vpc_id }}</div>
+{% endif %}

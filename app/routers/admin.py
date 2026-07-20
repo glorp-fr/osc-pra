@@ -715,6 +715,35 @@ def plan_scan_vpcs(
     )
 
 
+@router.post("/plans/{plan_id}/vpc-source")
+def plan_apply_source_vpc(request: Request, plan_id: int, source_vpc_id: str = Form("")):
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    if not source_vpc_id:
+        return templates.TemplateResponse(
+            "admin/_vpc_source_status.html",
+            {"request": request, "error": "Sélectionne un VPC dans la liste avant d'appliquer.", "vpc_id": None},
+        )
+
+    conn = get_connection()
+    existing = conn.execute("SELECT id FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    if existing is None:
+        conn.close()
+        return templates.TemplateResponse(
+            "admin/_vpc_source_status.html",
+            {"request": request, "error": "Plan introuvable.", "vpc_id": None},
+        )
+
+    conn.execute("UPDATE plans SET source_vpc_id = ? WHERE id = ?", (source_vpc_id, plan_id))
+    conn.commit()
+    conn.close()
+    return templates.TemplateResponse(
+        "admin/_vpc_source_status.html", {"request": request, "error": None, "vpc_id": source_vpc_id}
+    )
+
+
 @router.post("/plans/{plan_id}/vpc-cible")
 def plan_create_target_vpc(request: Request, plan_id: int):
     user = require_admin(request)

@@ -48,6 +48,10 @@
     {% endif %}
     <button type="button" class="btn sm ghost" hx-post="/admin/plans/octl/scan-vpcs" hx-include="closest form" hx-target="#vpc-list" hx-swap="innerHTML">Scanner les VPC</button>
     <div id="vpc-list"><p class="hint">Renseigne l'AK, le SK et la région source ci-dessus puis clique sur « Scanner les VPC ».</p></div>
+    {% if plan %}
+    <button type="button" class="btn sm ghost" hx-post="/admin/plans/{{ plan.id }}/vpc-source" hx-include="closest form" hx-target="#vpc-source-status" hx-swap="innerHTML">Appliquer</button>
+    <div id="vpc-source-status"></div>
+    {% endif %}
   </fieldset>
 
   {% if plan %}
