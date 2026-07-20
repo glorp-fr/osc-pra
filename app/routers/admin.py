@@ -457,12 +457,12 @@ def plan_new_submit(
 
 
 @router.post("/plans/octl/test-ak")
-def plan_test_ak(request: Request, ak: str = Form(""), sk: str = Form(""), region: str = Form("")):
+def plan_test_ak(request: Request, source_ak: str = Form(""), source_sk: str = Form(""), source_region: str = Form("")):
     user = require_admin(request)
     if isinstance(user, RedirectResponse):
         return user
 
-    if not (ak and sk and region):
+    if not (source_ak and source_sk and source_region):
         return templates.TemplateResponse(
             "admin/_ak_status.html",
             {"request": request, "result": None, "message": "AK, SK et région requis pour tester."},
@@ -474,19 +474,19 @@ def plan_test_ak(request: Request, ak: str = Form(""), sk: str = Form(""), regio
             {"request": request, "result": None, "message": "octl n'est pas installé sur ce serveur."},
         )
 
-    result = octl.check_access_key(ak, sk, region)
+    result = octl.check_access_key(source_ak, source_sk, source_region)
     return templates.TemplateResponse(
         "admin/_ak_status.html", {"request": request, "result": result, "message": None}
     )
 
 
 @router.post("/plans/octl/scan-vms")
-def plan_scan_vms(request: Request, ak: str = Form(""), sk: str = Form(""), region: str = Form("")):
+def plan_scan_vms(request: Request, source_ak: str = Form(""), source_sk: str = Form(""), source_region: str = Form("")):
     user = require_admin(request)
     if isinstance(user, RedirectResponse):
         return user
 
-    if not (ak and sk and region):
+    if not (source_ak and source_sk and source_region):
         return templates.TemplateResponse(
             "admin/_vm_list.html",
             {"request": request, "vms": None, "error": "AK, SK et région requis pour scanner."},
@@ -498,7 +498,7 @@ def plan_scan_vms(request: Request, ak: str = Form(""), sk: str = Form(""), regi
         )
 
     try:
-        vms = octl.list_vms(ak, sk, region)
+        vms = octl.list_vms(source_ak, source_sk, source_region)
         error = None
     except octl.OctlError as exc:
         vms = None

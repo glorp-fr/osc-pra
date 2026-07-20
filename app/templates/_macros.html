@@ -5,6 +5,29 @@
   ("oos.us-west-1.outscale.com", "US West (Californie)"),
 ] %}
 
+{% set OSC_REGIONS = [
+  ("eu-west-2", "Europe (Paris)"),
+  ("cloudgouv-eu-west-1", "Cloud Gouv (Paris)"),
+  ("us-east-2", "US East (New Jersey)"),
+  ("us-west-1", "US West (Californie)"),
+] %}
+
+{% macro region_field(field_name, current_value, label="Région") %}
+{% set known_values = OSC_REGIONS | map(attribute=0) | list %}
+<label>{{ label }}
+  <select onchange="oscEndpointPick(this, '{{ field_name }}')">
+    <option value="">— Choisir une région —</option>
+    {% for value, region_label in OSC_REGIONS %}
+    <option value="{{ value }}" {{ "selected" if current_value == value else "" }}>{{ region_label }} — {{ value }}</option>
+    {% endfor %}
+    <option value="__autre__" {{ "selected" if current_value and current_value not in known_values else "" }}>Autre…</option>
+  </select>
+</label>
+<input type="text" name="{{ field_name }}" id="{{ field_name }}_input" placeholder="région"
+  value="{{ current_value }}"
+  {{ "" if current_value and current_value not in known_values else "hidden" }}>
+{% endmacro %}
+
 {% macro s3_endpoint_field(field_name, current_value, label="Endpoint S3") %}
 {% set known_values = OOS_ENDPOINTS | map(attribute=0) | list %}
 <label>{{ label }}

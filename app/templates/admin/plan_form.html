@@ -12,7 +12,7 @@
 
   <fieldset>
     <legend>AK/SK source</legend>
-    <label>Région source <input type="text" name="source_region" placeholder="ex: eu-west-2"></label>
+    {{ macros.region_field('source_region', '', 'Région source') }}
     <label>AK <input type="text" name="source_ak"></label>
     <label>SK <input type="password" name="source_sk"></label>
     <button type="button" class="btn sm ghost" hx-post="/admin/plans/octl/test-ak" hx-include="closest form" hx-target="#ak-status" hx-swap="innerHTML">Tester l'AK/SK</button>
@@ -28,7 +28,7 @@
       </select>
     </label>
     <div id="cross-region-fields" hidden style="display:flex;flex-direction:column;gap:10px">
-      <label>Région <input type="text" name="target_region" placeholder="ex: eu-west-2"></label>
+      {{ macros.region_field('target_region', '', 'Région') }}
       {{ macros.s3_endpoint_field('sync_endpoint', '', 'Endpoint S3 de synchro') }}
       <label>Bucket S3 de synchro <input type="text" name="sync_bucket"></label>
       <label>AK S3 <input type="text" name="sync_ak"></label>
