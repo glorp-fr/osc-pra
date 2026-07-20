@@ -3,6 +3,16 @@ from pathlib import Path
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "osc-pra.db"
 
+# Colonnes attendues par table : permet d'ajouter une colonne à une base
+# existante (créée par une version antérieure) via ALTER TABLE, puisque
+# CREATE TABLE IF NOT EXISTS ne touche pas aux tables déjà présentes.
+EXPECTED_COLUMNS = {
+    "plans": {
+        "source_region": "TEXT",
+        "selected_vms": "TEXT",
+    },
+}
+
 
 def get_connection() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -10,6 +20,14 @@ def get_connection() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
+
+
+def _migrate_schema(conn: sqlite3.Connection) -> None:
+    for table, columns in EXPECTED_COLUMNS.items():
+        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for column, col_type in columns.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
 
 
 def init_db() -> None:
@@ -70,5 +88,6 @@ def init_db() -> None:
         )
         """
     )
+    _migrate_schema(conn)
     conn.commit()
     conn.close()
