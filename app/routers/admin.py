@@ -1,16 +1,27 @@
 import json
+import subprocess
+from urllib.parse import quote
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse
 from passlib.hash import bcrypt
 
-from app import octl, scheduling
+from app import cron, octl, scheduling
 from app.auth import ROLE_LABELS, ROLES, require_admin
 from app.crypto import decrypt, encrypt
-from app.db import get_connection
+from app.db import DB_PATH, get_connection
+from app.jobs import last_job
 from app.templates_env import templates
 
 router = APIRouter(prefix="/admin")
+
+
+def _sync_crontab_or_error() -> str | None:
+    try:
+        cron.sync_crontab()
+        return None
+    except cron.CronError as exc:
+        return str(exc)
 
 
 @router.get("")
@@ -21,7 +32,7 @@ def admin_index(request: Request):
 # --- Paramètres globaux ---------------------------------------------------
 
 @router.get("/parametres")
-def parametres_form(request: Request):
+def parametres_form(request: Request, message: str | None = None, cron_error: str | None = None):
     user = require_admin(request)
     if isinstance(user, RedirectResponse):
         return user
@@ -34,7 +45,18 @@ def parametres_form(request: Request):
 
     return templates.TemplateResponse(
         "admin/parametres.html",
-        {"request": request, "user": user, "settings": settings, "saved": False, "backup_freq": backup_freq},
+        {
+            "request": request,
+            "user": user,
+            "settings": settings,
+            "saved": False,
+            "backup_freq": backup_freq,
+            "message": message,
+            "cron_error": cron_error,
+            "last_backup": last_job("backup"),
+            "db_size_bytes": DB_PATH.stat().st_size if DB_PATH.exists() else None,
+            "cron_lines": cron.build_cron_lines(),
+        },
     )
 
 
@@ -102,11 +124,47 @@ def parametres_submit(
     conn.close()
 
     backup_freq = scheduling.parse_cron(settings["backup_frequency"] if settings else None)
+    cron_error = _sync_crontab_or_error()
 
     return templates.TemplateResponse(
         "admin/parametres.html",
-        {"request": request, "user": user, "settings": settings, "saved": True, "backup_freq": backup_freq},
+        {
+            "request": request,
+            "user": user,
+            "settings": settings,
+            "saved": True,
+            "backup_freq": backup_freq,
+            "message": None,
+            "cron_error": cron_error,
+            "last_backup": last_job("backup"),
+            "db_size_bytes": DB_PATH.stat().st_size if DB_PATH.exists() else None,
+            "cron_lines": cron.build_cron_lines(),
+        },
     )
+
+
+@router.post("/backup/lancer")
+def backup_run_now(request: Request):
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    subprocess.Popen([cron.python_bin(), str(cron.APP_DIR / "scripts" / "run_backup.py")])
+    return RedirectResponse(
+        "/admin/parametres?message=Sauvegarde+lanc%C3%A9e+en+arri%C3%A8re-plan", status_code=303
+    )
+
+
+@router.post("/planification/resync")
+def planification_resync(request: Request):
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    error = _sync_crontab_or_error()
+    if error:
+        return RedirectResponse(f"/admin/parametres?cron_error={quote(error)}", status_code=303)
+    return RedirectResponse("/admin/parametres?message=Crontab+resynchronis%C3%A9", status_code=303)
 
 
 # --- Gestion des comptes ---------------------------------------------------
@@ -311,7 +369,7 @@ def compte_delete(request: Request, account_id: int):
 # --- Plans de reprise -------------------------------------------------------
 
 @router.get("/plans")
-def plans_list(request: Request):
+def plans_list(request: Request, message: str | None = None, error: str | None = None):
     user = require_admin(request)
     if isinstance(user, RedirectResponse):
         return user
@@ -321,7 +379,8 @@ def plans_list(request: Request):
     conn.close()
 
     return templates.TemplateResponse(
-        "admin/plans.html", {"request": request, "user": user, "plans": plans}
+        "admin/plans.html",
+        {"request": request, "user": user, "plans": plans, "message": message, "error": error},
     )
 
 
@@ -390,6 +449,10 @@ def plan_new_submit(
             status_code=400,
         )
     conn.close()
+
+    error = _sync_crontab_or_error()
+    if error:
+        return RedirectResponse(f"/admin/plans?error={quote(error)}", status_code=303)
     return RedirectResponse("/admin/plans", status_code=303)
 
 
@@ -456,6 +519,10 @@ def plan_disable(request: Request, plan_id: int):
     conn.execute("UPDATE plans SET active = 0 WHERE id = ?", (plan_id,))
     conn.commit()
     conn.close()
+
+    error = _sync_crontab_or_error()
+    if error:
+        return RedirectResponse(f"/admin/plans?error={quote(error)}", status_code=303)
     return RedirectResponse("/admin/plans", status_code=303)
 
 
@@ -469,7 +536,23 @@ def plan_enable(request: Request, plan_id: int):
     conn.execute("UPDATE plans SET active = 1 WHERE id = ?", (plan_id,))
     conn.commit()
     conn.close()
+
+    error = _sync_crontab_or_error()
+    if error:
+        return RedirectResponse(f"/admin/plans?error={quote(error)}", status_code=303)
     return RedirectResponse("/admin/plans", status_code=303)
+
+
+@router.post("/plans/{plan_id}/lancer")
+def plan_run_now(request: Request, plan_id: int):
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    subprocess.Popen([cron.python_bin(), str(cron.APP_DIR / "scripts" / "run_plan.py"), str(plan_id)])
+    return RedirectResponse(
+        "/admin/plans?message=Job+de+snapshot+lanc%C3%A9+en+arri%C3%A8re-plan", status_code=303
+    )
 
 
 @router.get("/plans/{plan_id}/supprimer")
@@ -499,6 +582,10 @@ def plan_delete(request: Request, plan_id: int):
     conn.execute("DELETE FROM plans WHERE id = ?", (plan_id,))
     conn.commit()
     conn.close()
+
+    error = _sync_crontab_or_error()
+    if error:
+        return RedirectResponse(f"/admin/plans?error={quote(error)}", status_code=303)
     return RedirectResponse("/admin/plans", status_code=303)
 
 

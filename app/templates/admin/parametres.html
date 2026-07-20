@@ -3,6 +3,8 @@
 {% block content %}
 <div class="stitle" style="margin-bottom:16px">Paramètres globaux</div>
 {% if saved %}<div class="ok-banner" style="margin-bottom:16px">Paramètres enregistrés.</div>{% endif %}
+{% if message %}<div class="ok-banner" style="margin-bottom:16px">{{ message }}</div>{% endif %}
+{% if cron_error %}<div class="err-banner" style="margin-bottom:16px">Crontab non synchronisé : {{ cron_error }}</div>{% endif %}
 
 <form method="post" action="/admin/parametres">
   <fieldset>
@@ -28,7 +30,18 @@
 
   <fieldset>
     <legend>Base de données</legend>
-    <p><span class="bdg actif">Connectée</span> <span class="hint">SQLite</span></p>
+    <p>
+      <span class="bdg actif">Connectée</span> <span class="hint">SQLite{{ " — %.1f Ko" % (db_size_bytes / 1024) if db_size_bytes else "" }}</span>
+    </p>
+    <p class="hint">
+      {% if last_backup %}
+      Dernière sauvegarde : {{ last_backup.started_at }} —
+      <span class="bdg {{ last_backup.status }}">{{ {"success": "Réussie", "error": "Échec", "running": "En cours"}[last_backup.status] }}</span>
+      {% if last_backup.message %}({{ last_backup.message }}){% endif %}
+      {% else %}
+      Aucune sauvegarde n'a encore été effectuée.
+      {% endif %}
+    </p>
     <label>Sauvegarde vers
       <select name="backup_bucket_mode">
         <option value="reuse" {{ "selected" if settings and settings.backup_bucket_mode == "reuse" else "" }}>Bucket de stockage de la configuration (ci-dessus)</option>
@@ -46,4 +59,26 @@
 
   <button type="submit" class="btn blue">Enregistrer</button>
 </form>
+
+<div class="card" style="margin-top:16px">
+  <div class="phdr"><span class="stitle" style="font-size:14px">Planification</span></div>
+  <div class="pbody">
+    <p class="hint" style="margin-bottom:10px">
+      Tâches actuellement synchronisées dans le crontab (sauvegarde de la configuration et snapshots des plans actifs).
+    </p>
+    {% if cron_lines %}
+    <pre class="mono" style="font-size:11px;color:var(--text-dim);white-space:pre-wrap;overflow-x:auto">{{ cron_lines | join("\n") }}</pre>
+    {% else %}
+    <p class="empty">Aucune tâche planifiée pour le moment (aucune fréquence de sauvegarde ni plan actif).</p>
+    {% endif %}
+    <div style="display:flex;gap:10px;margin-top:12px">
+      <form method="post" action="/admin/backup/lancer">
+        <button type="submit" class="btn sm ghost">Sauvegarder maintenant</button>
+      </form>
+      <form method="post" action="/admin/planification/resync">
+        <button type="submit" class="btn sm ghost">Resynchroniser le crontab</button>
+      </form>
+    </div>
+  </div>
+</div>
 {% endblock %}

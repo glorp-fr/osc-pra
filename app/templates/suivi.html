@@ -26,7 +26,24 @@
 <div class="card">
   <div class="phdr"><span class="stitle" style="font-size:14px">Jobs</span></div>
   <div class="pbody">
-    <p class="empty">Aucun job pour le moment — l'exécution des jobs n'est pas encore implémentée.</p>
+    {% if jobs %}
+    <table>
+      <thead><tr><th>Démarré le</th><th>Type</th><th>Plan / VM</th><th>Statut</th><th>Détail</th></tr></thead>
+      <tbody>
+        {% for job in jobs %}
+        <tr>
+          <td class="mono" style="font-size:11px;color:var(--text-muted)">{{ job.started_at }}</td>
+          <td>{{ "Sauvegarde config" if job.job_type == "backup" else "Snapshot" }}</td>
+          <td>{{ job.plan_name ~ (" / " ~ job.vm_id if job.vm_id else "") if job.plan_name else "—" }}</td>
+          <td><span class="bdg {{ job.status }}">{{ {"success": "Réussi", "error": "Erreur", "running": "En cours"}[job.status] }}</span></td>
+          <td style="font-size:12px;color:var(--text-dim)">{{ job.message or "" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">Aucun job pour le moment.</p>
+    {% endif %}
   </div>
 </div>
 

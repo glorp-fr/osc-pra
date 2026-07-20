@@ -88,6 +88,9 @@ tr:hover td{background:var(--panel-2)}
 .bdg.readonly{background:#f1f5f9;color:#475569}
 .bdg.actif{background:var(--ok-bg);color:var(--ok)}
 .bdg.inactif{background:var(--panel-2);color:var(--text-muted)}
+.bdg.success{background:var(--ok-bg);color:var(--ok)}
+.bdg.error{background:var(--err-bg);color:var(--err)}
+.bdg.running{background:var(--warn-bg);color:var(--warn)}
 
 /* ── Banners ── */
 .warn-banner{border-left:3px solid var(--os-yellow);background:var(--os-yellow-pale);padding:9px 13px;border-radius:0 7px 7px 0;font-size:13px;color:#7a5200}

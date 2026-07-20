@@ -94,6 +94,21 @@ def init_db() -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_type TEXT NOT NULL,
+            plan_id INTEGER,
+            plan_name TEXT,
+            vm_id TEXT,
+            status TEXT NOT NULL DEFAULT 'running',
+            message TEXT,
+            started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            finished_at TEXT
+        )
+        """
+    )
     _migrate_schema(conn)
     conn.commit()
     conn.close()

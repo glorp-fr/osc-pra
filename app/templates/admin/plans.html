@@ -5,6 +5,9 @@
   <a href="/admin/plans/nouveau" class="btn blue">+ Nouveau plan</a>
 </div>
 
+{% if error %}<div class="err-banner" style="margin-bottom:16px">{{ error }}</div>{% endif %}
+{% if message %}<div class="ok-banner" style="margin-bottom:16px">{{ message }}</div>{% endif %}
+
 {% if plans %}
 <div class="card">
   <div class="pbody">
@@ -20,6 +23,9 @@
             {% if plan.active %}
             <form method="post" action="/admin/plans/{{ plan.id }}/desactiver">
               <button type="submit" class="btn sm ghost">Désactiver</button>
+            </form>
+            <form method="post" action="/admin/plans/{{ plan.id }}/lancer">
+              <button type="submit" class="btn sm ghost">Lancer maintenant</button>
             </form>
             {% else %}
             <form method="post" action="/admin/plans/{{ plan.id }}/activer">

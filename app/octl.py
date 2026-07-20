@@ -82,3 +82,15 @@ def list_security_groups(ak: str, sk: str, region: str) -> list:
 
 def list_route_tables(ak: str, sk: str, region: str) -> list:
     return _run("ReadRouteTables", ak, sk, region)
+
+
+def create_snapshot(ak: str, sk: str, region: str, volume_id: str, description: str) -> dict:
+    return _run("CreateSnapshot", ak, sk, region, "--VolumeId", volume_id, "--Description", description)
+
+
+def list_snapshots(ak: str, sk: str, region: str, volume_id: str) -> list:
+    return _run("ReadSnapshots", ak, sk, region, "--VolumeId", volume_id)
+
+
+def delete_snapshot(ak: str, sk: str, region: str, snapshot_id: str) -> None:
+    _run("DeleteSnapshot", ak, sk, region, "--SnapshotId", snapshot_id)
