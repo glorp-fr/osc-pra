@@ -382,6 +382,18 @@ def _resolve_source_sk(source_sk: str, plan_id: str) -> str:
     return source_sk
 
 
+def _resolve_source_vpc_id(source_vpc_id: str, plan_id: str) -> str:
+    """Idem _resolve_source_sk : si le VPC source n'a pas été (re)scanné dans
+    ce chargement de page, on retombe sur celui déjà enregistré sur le plan."""
+    if source_vpc_id or not plan_id:
+        return source_vpc_id
+
+    conn = get_connection()
+    plan = conn.execute("SELECT source_vpc_id FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    conn.close()
+    return plan["source_vpc_id"] if plan and plan["source_vpc_id"] else source_vpc_id
+
+
 @router.get("/plans")
 def plans_list(request: Request, message: str | None = None, error: str | None = None):
     user = require_admin(request)
@@ -618,6 +630,7 @@ def plan_scan_vms(
     source_ak: str = Form(""),
     source_sk: str = Form(""),
     source_region: str = Form(""),
+    source_vpc_id: str = Form(""),
     existing_selected_vms: str = Form("[]"),
     plan_id: str = Form(""),
 ):
@@ -626,6 +639,7 @@ def plan_scan_vms(
         return user
 
     source_sk = _resolve_source_sk(source_sk, plan_id)
+    source_vpc_id = _resolve_source_vpc_id(source_vpc_id, plan_id)
 
     try:
         selected_ids = set(json.loads(existing_selected_vms))
@@ -638,6 +652,12 @@ def plan_scan_vms(
             {"request": request, "vms": None, "error": "AK, SK et région requis pour scanner.", "selected_ids": selected_ids},
         )
 
+    if not source_vpc_id:
+        return templates.TemplateResponse(
+            "admin/_vm_list.html",
+            {"request": request, "vms": None, "error": "Sélectionne d'abord un VPC source (section ci-dessus) avant de scanner les VMs.", "selected_ids": selected_ids},
+        )
+
     if not octl.is_available():
         return templates.TemplateResponse(
             "admin/_vm_list.html",
@@ -645,7 +665,7 @@ def plan_scan_vms(
         )
 
     try:
-        vms = octl.list_vms(source_ak, source_sk, source_region)
+        vms = [vm for vm in octl.list_vms(source_ak, source_sk, source_region) if vm.get("NetId") == source_vpc_id]
         error = None
     except octl.OctlError as exc:
         vms = None

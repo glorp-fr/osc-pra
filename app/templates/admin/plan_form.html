@@ -68,7 +68,7 @@
     <p class="hint">VMs actuellement sélectionnées : {{ existing_vm_ids | join(", ") }}</p>
     {% endif %}
     <button type="button" class="btn sm ghost" hx-post="/admin/plans/octl/scan-vms" hx-include="closest form" hx-target="#vm-list" hx-swap="innerHTML">Scanner les VMs</button>
-    <div id="vm-list"><p class="hint">Renseigne l'AK, le SK et la région source ci-dessus puis clique sur « Scanner les VMs ».</p></div>
+    <div id="vm-list"><p class="hint">Renseigne l'AK, le SK et la région source, sélectionne un VPC source ci-dessus, puis clique sur « Scanner les VMs ».</p></div>
   </fieldset>
 
   <fieldset>
