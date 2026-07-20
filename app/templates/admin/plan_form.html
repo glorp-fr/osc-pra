@@ -22,12 +22,12 @@
   <fieldset>
     <legend>Cible de réplication</legend>
     <label>
-      <select name="target_type" id="target_type" onchange="document.getElementById('cross-region-fields').hidden = this.value !== 'autre_region'">
+      <select name="target_type" id="target_type" onchange="document.getElementById('cross-region-fields').style.display = this.value === 'autre_region' ? 'flex' : 'none'">
         <option value="meme_region">Même région</option>
         <option value="autre_region">Autre région</option>
       </select>
     </label>
-    <div id="cross-region-fields" hidden style="display:flex;flex-direction:column;gap:10px">
+    <div id="cross-region-fields" style="display:none;flex-direction:column;gap:10px">
       {{ macros.region_field('target_region', '', 'Région') }}
       {{ macros.s3_endpoint_field('sync_endpoint', '', 'Endpoint S3 de synchro') }}
       <label>Bucket S3 de synchro <input type="text" name="sync_bucket"></label>
