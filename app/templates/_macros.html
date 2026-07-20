@@ -1,3 +1,26 @@
+{% set OOS_ENDPOINTS = [
+  ("oos.eu-west-2.outscale.com", "Europe (Paris)"),
+  ("oos.cloudgouv-eu-west-1.outscale.com", "Cloud Gouv (Paris)"),
+  ("oos.us-east-2.outscale.com", "US East (New Jersey)"),
+  ("oos.us-west-1.outscale.com", "US West (Californie)"),
+] %}
+
+{% macro s3_endpoint_field(field_name, current_value, label="Endpoint S3") %}
+{% set known_values = OOS_ENDPOINTS | map(attribute=0) | list %}
+<label>{{ label }}
+  <select onchange="oscEndpointPick(this, '{{ field_name }}')">
+    <option value="">— Choisir un endpoint —</option>
+    {% for value, region_label in OOS_ENDPOINTS %}
+    <option value="{{ value }}" {{ "selected" if current_value == value else "" }}>{{ region_label }} — {{ value }}</option>
+    {% endfor %}
+    <option value="__autre__" {{ "selected" if current_value and current_value not in known_values else "" }}>Autre…</option>
+  </select>
+</label>
+<input type="text" name="{{ field_name }}" id="{{ field_name }}_input" placeholder="endpoint S3"
+  value="{{ current_value }}"
+  {{ "" if current_value and current_value not in known_values else "hidden" }}>
+{% endmacro %}
+
 {% macro frequency_picker(prefix, parsed) %}
 <div class="freq-picker">
   <div class="freq-type-row">

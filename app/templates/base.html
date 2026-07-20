@@ -7,6 +7,19 @@
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&family=Open+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
   <link rel="stylesheet" href="/static/style.css">
+  <script>
+    function oscEndpointPick(select, fieldName) {
+      const input = document.getElementById(fieldName + "_input");
+      if (select.value === "__autre__") {
+        input.hidden = false;
+        input.value = "";
+        input.focus();
+      } else {
+        input.value = select.value;
+        input.hidden = true;
+      }
+    }
+  </script>
 </head>
 <body>
   {% if user %}

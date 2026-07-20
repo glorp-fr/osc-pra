@@ -22,7 +22,7 @@
         <option value="s3" {{ "selected" if settings and settings.storage_mode == "s3" else "" }}>S3</option>
       </select>
     </label>
-    <label>Endpoint S3 <input type="text" name="s3_endpoint" value="{{ settings.s3_endpoint if settings else '' }}"></label>
+    {{ macros.s3_endpoint_field('s3_endpoint', settings.s3_endpoint if settings else '') }}
     <label>Bucket S3 <input type="text" name="s3_bucket" value="{{ settings.s3_bucket if settings else '' }}"></label>
     <label>AK <input type="text" name="s3_ak" value="{{ settings.s3_ak if settings else '' }}"></label>
     <label>SK <input type="password" name="s3_sk" placeholder="{{ '••••••••' if settings and settings.s3_sk_encrypted else '' }}"></label>
@@ -48,7 +48,7 @@
         <option value="dedicated" {{ "selected" if settings and settings.backup_bucket_mode == "dedicated" else "" }}>Bucket dédié</option>
       </select>
     </label>
-    <label>Endpoint S3 <input type="text" name="backup_endpoint" value="{{ settings.backup_endpoint if settings else '' }}"></label>
+    {{ macros.s3_endpoint_field('backup_endpoint', settings.backup_endpoint if settings else '') }}
     <label>Bucket S3 <input type="text" name="backup_bucket" value="{{ settings.backup_bucket if settings else '' }}"></label>
     <label>AK <input type="text" name="backup_ak" value="{{ settings.backup_ak if settings else '' }}"></label>
     <label>SK <input type="password" name="backup_sk" placeholder="{{ '••••••••' if settings and settings.backup_sk_encrypted else '' }}"></label>

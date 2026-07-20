@@ -29,7 +29,7 @@
     </label>
     <div id="cross-region-fields" hidden style="display:flex;flex-direction:column;gap:10px">
       <label>Région <input type="text" name="target_region" placeholder="ex: eu-west-2"></label>
-      <label>Endpoint S3 de synchro <input type="text" name="sync_endpoint"></label>
+      {{ macros.s3_endpoint_field('sync_endpoint', '', 'Endpoint S3 de synchro') }}
       <label>Bucket S3 de synchro <input type="text" name="sync_bucket"></label>
       <label>AK S3 <input type="text" name="sync_ak"></label>
       <label>SK S3 <input type="password" name="sync_sk"></label>
