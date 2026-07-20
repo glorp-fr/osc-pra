@@ -16,24 +16,32 @@ command -v apt-get >/dev/null 2>&1 || die "Ce script suppose une distribution ba
 
 log "Installation des dépendances système"
 apt-get update -qq
-apt-get install -y -qq python3 python3-venv python3-pip sqlite3 curl >/dev/null
+apt-get install -y -qq python3 python3-venv python3-pip sqlite3 curl cron >/dev/null
+systemctl enable --quiet cron
+systemctl start cron
 
 log "Installation d'octl (CLI Outscale, https://github.com/outscale/octl)"
-if ! command -v octl >/dev/null 2>&1; then
-    case "$(uname -m)" in
-        x86_64)          OCTL_ASSET="octl_Linux_x86_64" ;;
-        aarch64|arm64)   OCTL_ASSET="octl_Linux_arm64" ;;
-        *)               OCTL_ASSET="" ;;
-    esac
-    if [ -n "$OCTL_ASSET" ]; then
-        curl -fsSL -o /usr/local/bin/octl \
-            "https://github.com/outscale/octl/releases/latest/download/${OCTL_ASSET}"
-        chmod +x /usr/local/bin/octl
-    else
-        warn "Architecture $(uname -m) non reconnue pour octl — installe-le manuellement depuis https://github.com/outscale/octl."
-    fi
-else
+case "$(uname -m)" in
+    x86_64)          OCTL_ASSET="octl_Linux_x86_64" ;;
+    aarch64|arm64)   OCTL_ASSET="octl_Linux_arm64" ;;
+    *)               OCTL_ASSET="" ;;
+esac
+
+if command -v octl >/dev/null 2>&1; then
     log "octl déjà installé ($(command -v octl))"
+elif [ -z "$OCTL_ASSET" ]; then
+    warn "Architecture $(uname -m) non reconnue pour octl — installe-le manuellement depuis https://github.com/outscale/octl."
+else
+    curl -fsSL -o /usr/local/bin/octl \
+        "https://github.com/outscale/octl/releases/latest/download/${OCTL_ASSET}" \
+        || die "Téléchargement d'octl échoué (asset ${OCTL_ASSET})."
+    chmod +x /usr/local/bin/octl
+    command -v octl >/dev/null 2>&1 || die "octl a été téléchargé dans /usr/local/bin mais reste introuvable dans le PATH."
+    if octl --version </dev/null >/dev/null 2>&1; then
+        log "octl installé : $(octl --version </dev/null 2>/dev/null | head -1)"
+    else
+        warn "octl est installé mais 'octl --version' a échoué — vérifie le binaire manuellement."
+    fi
 fi
 
 log "Création de l'environnement virtuel Python"
