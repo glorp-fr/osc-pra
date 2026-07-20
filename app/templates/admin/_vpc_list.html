@@ -1,0 +1,19 @@
+{% if error %}
+<div class="err-banner">{{ error }}</div>
+{% elif vpcs is none %}
+<p class="hint">Renseigne l'AK, le SK et la région source ci-dessus puis clique sur « Scanner les VPC ».</p>
+{% elif vpcs|length == 0 %}
+<p class="empty">Aucun VPC trouvé sur ce compte/région.</p>
+{% else %}
+<ul class="checkbox-list">
+  {% for vpc in vpcs %}
+  <li>
+    <label class="checkbox">
+      <input type="radio" name="source_vpc_id" value="{{ vpc.NetId }}" {{ "checked" if vpc.NetId == selected_vpc_id else "" }}>
+      {{ vpc.NetId }} — {{ vpc.Tags | selectattr("Key", "equalto", "Name") | map(attribute="Value") | first | default(vpc.NetId) }}
+      ({{ vpc.IpRange }})
+    </label>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}

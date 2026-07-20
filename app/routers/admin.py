@@ -421,8 +421,11 @@ def plan_new_submit(
     source_sk: str = Form(""),
     source_region: str = Form(""),
     selected_vms: list[str] = Form([]),
+    source_vpc_id: str = Form(""),
     target_type: str = Form("meme_region"),
     target_region: str = Form(""),
+    target_ak: str = Form(""),
+    target_sk: str = Form(""),
     sync_endpoint: str = Form(""),
     sync_bucket: str = Form(""),
     sync_ak: str = Form(""),
@@ -445,14 +448,14 @@ def plan_new_submit(
         conn.execute(
             """
             INSERT INTO plans (
-                name, source_ak, source_sk_encrypted, source_region, selected_vms,
-                target_type, target_region, sync_endpoint, sync_bucket, sync_ak,
+                name, source_ak, source_sk_encrypted, source_region, selected_vms, source_vpc_id,
+                target_type, target_region, target_ak, target_sk_encrypted, sync_endpoint, sync_bucket, sync_ak,
                 sync_sk_encrypted, target_retain_count, snapshot_frequency, source_retain_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                name, source_ak, encrypt(source_sk), source_region, json.dumps(selected_vms),
-                target_type, target_region, sync_endpoint, sync_bucket, sync_ak,
+                name, source_ak, encrypt(source_sk), source_region, json.dumps(selected_vms), source_vpc_id,
+                target_type, target_region, target_ak, encrypt(target_sk), sync_endpoint, sync_bucket, sync_ak,
                 encrypt(sync_sk), target_retain_count, snapshot_frequency, source_retain_count,
             ),
         )
@@ -507,8 +510,11 @@ def plan_edit_submit(
     source_sk: str = Form(""),
     source_region: str = Form(""),
     selected_vms: list[str] = Form([]),
+    source_vpc_id: str = Form(""),
     target_type: str = Form("meme_region"),
     target_region: str = Form(""),
+    target_ak: str = Form(""),
+    target_sk: str = Form(""),
     sync_endpoint: str = Form(""),
     sync_bucket: str = Form(""),
     sync_ak: str = Form(""),
@@ -533,19 +539,23 @@ def plan_edit_submit(
     snapshot_frequency = scheduling.build_cron(snapshot_freq_type, snapshot_hourly_interval, snapshot_time, snapshot_days)
     source_sk_encrypted = encrypt(source_sk) if source_sk else existing["source_sk_encrypted"]
     sync_sk_encrypted = encrypt(sync_sk) if sync_sk else existing["sync_sk_encrypted"]
+    target_sk_encrypted = encrypt(target_sk) if target_sk else existing["target_sk_encrypted"]
+    source_vpc_id = source_vpc_id or existing["source_vpc_id"]
 
     try:
         conn.execute(
             """
             UPDATE plans SET
                 name = ?, source_ak = ?, source_sk_encrypted = ?, source_region = ?, selected_vms = ?,
-                target_type = ?, target_region = ?, sync_endpoint = ?, sync_bucket = ?, sync_ak = ?,
+                source_vpc_id = ?, target_type = ?, target_region = ?, target_ak = ?, target_sk_encrypted = ?,
+                sync_endpoint = ?, sync_bucket = ?, sync_ak = ?,
                 sync_sk_encrypted = ?, target_retain_count = ?, snapshot_frequency = ?, source_retain_count = ?
             WHERE id = ?
             """,
             (
                 name, source_ak, source_sk_encrypted, source_region, json.dumps(selected_vms),
-                target_type, target_region, sync_endpoint, sync_bucket, sync_ak,
+                source_vpc_id, target_type, target_region, target_ak, target_sk_encrypted,
+                sync_endpoint, sync_bucket, sync_ak,
                 sync_sk_encrypted, target_retain_count, snapshot_frequency, source_retain_count,
                 plan_id,
             ),
@@ -643,6 +653,109 @@ def plan_scan_vms(
 
     return templates.TemplateResponse(
         "admin/_vm_list.html", {"request": request, "vms": vms, "error": error, "selected_ids": selected_ids}
+    )
+
+
+@router.post("/plans/octl/scan-vpcs")
+def plan_scan_vpcs(
+    request: Request,
+    source_ak: str = Form(""),
+    source_sk: str = Form(""),
+    source_region: str = Form(""),
+    source_vpc_id: str = Form(""),
+    plan_id: str = Form(""),
+):
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    source_sk = _resolve_source_sk(source_sk, plan_id)
+
+    if not (source_ak and source_sk and source_region):
+        return templates.TemplateResponse(
+            "admin/_vpc_list.html",
+            {"request": request, "vpcs": None, "error": "AK, SK et région requis pour scanner.", "selected_vpc_id": source_vpc_id},
+        )
+
+    if not octl.is_available():
+        return templates.TemplateResponse(
+            "admin/_vpc_list.html",
+            {"request": request, "vpcs": None, "error": "octl n'est pas installé sur ce serveur.", "selected_vpc_id": source_vpc_id},
+        )
+
+    try:
+        vpcs = octl.list_vpcs(source_ak, source_sk, source_region)
+        error = None
+    except octl.OctlError as exc:
+        vpcs = None
+        error = str(exc)
+
+    return templates.TemplateResponse(
+        "admin/_vpc_list.html", {"request": request, "vpcs": vpcs, "error": error, "selected_vpc_id": source_vpc_id}
+    )
+
+
+@router.post("/plans/{plan_id}/vpc-cible")
+def plan_create_target_vpc(request: Request, plan_id: int):
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    conn = get_connection()
+    plan = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
+
+    if plan is None or not plan["source_vpc_id"]:
+        conn.close()
+        return templates.TemplateResponse(
+            "admin/_vpc_target_status.html",
+            {"request": request, "error": "Sélectionne un VPC source et enregistre le plan avant de créer le VPC cible.", "result": None},
+        )
+
+    if plan["target_type"] == "autre_region":
+        target_ak = plan["target_ak"]
+        target_sk = decrypt(plan["target_sk_encrypted"]) if plan["target_sk_encrypted"] else ""
+        target_region = plan["target_region"]
+        if not (target_ak and target_sk and target_region):
+            conn.close()
+            return templates.TemplateResponse(
+                "admin/_vpc_target_status.html",
+                {"request": request, "error": "AK/SK et région du compte cible requis pour créer le VPC cible.", "result": None},
+            )
+    else:
+        target_ak = plan["source_ak"]
+        target_sk = decrypt(plan["source_sk_encrypted"]) if plan["source_sk_encrypted"] else ""
+        target_region = plan["source_region"]
+
+    if not octl.is_available():
+        conn.close()
+        return templates.TemplateResponse(
+            "admin/_vpc_target_status.html",
+            {"request": request, "error": "octl n'est pas installé sur ce serveur.", "result": None},
+        )
+
+    source_sk = decrypt(plan["source_sk_encrypted"]) if plan["source_sk_encrypted"] else ""
+    result, error = None, None
+    try:
+        source_vpcs = octl.list_vpcs(plan["source_ak"], source_sk, plan["source_region"])
+        source_vpc = next((v for v in source_vpcs if v.get("NetId") == plan["source_vpc_id"]), None)
+        if source_vpc is None:
+            raise octl.OctlError("VPC source introuvable sur le compte (supprimé ?).")
+
+        name_tag = next(
+            (t["Value"] for t in source_vpc.get("Tags", []) if t.get("Key") == "Name"),
+            plan["name"],
+        )
+        target_vpc = octl.create_vpc(target_ak, target_sk, target_region, source_vpc["IpRange"], f"{name_tag}-pra")
+        target_vpc_id = target_vpc.get("NetId") if isinstance(target_vpc, dict) else None
+        conn.execute("UPDATE plans SET target_vpc_id = ? WHERE id = ?", (target_vpc_id, plan_id))
+        conn.commit()
+        result = {"vpc_id": target_vpc_id, "ip_range": source_vpc["IpRange"]}
+    except octl.OctlError as exc:
+        error = str(exc)
+
+    conn.close()
+    return templates.TemplateResponse(
+        "admin/_vpc_target_status.html", {"request": request, "result": result, "error": error}
     )
 
 

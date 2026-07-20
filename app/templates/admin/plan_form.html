@@ -30,7 +30,9 @@
       </select>
     </label>
     <div id="cross-region-fields" style="display:{{ 'flex' if plan and plan.target_type == 'autre_region' else 'none' }};flex-direction:column;gap:10px">
-      {{ macros.region_field('target_region', plan.target_region if plan else '', 'Région') }}
+      <label>AK cible <input type="text" name="target_ak" value="{{ plan.target_ak if plan else '' }}"></label>
+      <label>SK cible <input type="password" name="target_sk" placeholder="{{ '••••••••' if plan and plan.target_sk_encrypted else '' }}"></label>
+      {{ macros.region_field('target_region', plan.target_region if plan else '', 'Région cible') }}
       {{ macros.s3_endpoint_field('sync_endpoint', plan.sync_endpoint if plan else '', 'Endpoint S3 de synchro') }}
       <label>Bucket S3 de synchro <input type="text" name="sync_bucket" value="{{ plan.sync_bucket if plan else '' }}"></label>
       <label>AK S3 <input type="text" name="sync_ak" value="{{ plan.sync_ak if plan else '' }}"></label>
@@ -38,6 +40,26 @@
       <label>Snapshots à conserver côté cible <input type="number" min="1" name="target_retain_count" value="{{ plan.target_retain_count if plan else 7 }}"></label>
     </div>
   </fieldset>
+
+  <fieldset>
+    <legend>VPC source</legend>
+    {% if plan and plan.source_vpc_id %}
+    <p class="hint">VPC actuellement sélectionné : {{ plan.source_vpc_id }}</p>
+    {% endif %}
+    <button type="button" class="btn sm ghost" hx-post="/admin/plans/octl/scan-vpcs" hx-include="closest form" hx-target="#vpc-list" hx-swap="innerHTML">Scanner les VPC</button>
+    <div id="vpc-list"><p class="hint">Renseigne l'AK, le SK et la région source ci-dessus puis clique sur « Scanner les VPC ».</p></div>
+  </fieldset>
+
+  {% if plan %}
+  <fieldset>
+    <legend>VPC cible</legend>
+    {% if plan.target_vpc_id %}
+    <p class="hint">VPC cible déjà créé : {{ plan.target_vpc_id }}</p>
+    {% endif %}
+    <button type="button" class="btn sm ghost" hx-post="/admin/plans/{{ plan.id }}/vpc-cible" hx-target="#vpc-target-status" hx-swap="innerHTML">Créer le VPC cible</button>
+    <div id="vpc-target-status"></div>
+  </fieldset>
+  {% endif %}
 
   <fieldset>
     <legend>VMs à répliquer</legend>

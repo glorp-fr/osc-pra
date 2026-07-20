@@ -10,6 +10,10 @@ EXPECTED_COLUMNS = {
     "plans": {
         "source_region": "TEXT",
         "selected_vms": "TEXT",
+        "source_vpc_id": "TEXT",
+        "target_ak": "TEXT",
+        "target_sk_encrypted": "TEXT",
+        "target_vpc_id": "TEXT",
     },
     "users": {
         "role": "TEXT NOT NULL DEFAULT 'operateur'",
@@ -80,8 +84,12 @@ def init_db() -> None:
             source_sk_encrypted TEXT,
             source_region TEXT,
             selected_vms TEXT,
+            source_vpc_id TEXT,
             target_type TEXT NOT NULL DEFAULT 'meme_region',
             target_region TEXT,
+            target_ak TEXT,
+            target_sk_encrypted TEXT,
+            target_vpc_id TEXT,
             sync_endpoint TEXT,
             sync_bucket TEXT,
             sync_ak TEXT,

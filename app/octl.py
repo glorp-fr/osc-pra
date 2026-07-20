@@ -76,6 +76,21 @@ def list_subnets(ak: str, sk: str, region: str) -> list:
     return _run("ReadSubnets", ak, sk, region)
 
 
+def list_vpcs(ak: str, sk: str, region: str) -> list:
+    return _run("ReadNets", ak, sk, region)
+
+
+def create_vpc(ak: str, sk: str, region: str, ip_range: str, name: str) -> dict:
+    """Recrée un VPC (Net) à l'identique du point de vue réseau (même IpRange),
+    avec un tag Name pour le retrouver côté cible."""
+    net = _run("CreateNet", ak, sk, region, "--IpRange", ip_range)
+    net_id = net.get("NetId") if isinstance(net, dict) else None
+    if net_id and name:
+        payload = json.dumps({"ResourceIds": [net_id], "Tags": [{"Key": "Name", "Value": name}]})
+        _run("CreateTags", ak, sk, region, "--payload", payload)
+    return net
+
+
 def list_security_groups(ak: str, sk: str, region: str) -> list:
     return _run("ReadSecurityGroups", ak, sk, region)
 
