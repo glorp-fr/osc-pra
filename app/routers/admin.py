@@ -392,7 +392,10 @@ def plan_new_form(request: Request):
 
     return templates.TemplateResponse(
         "admin/plan_form.html",
-        {"request": request, "user": user, "error": None, "snapshot_freq": scheduling.parse_cron(None)},
+        {
+            "request": request, "user": user, "error": None, "plan": None,
+            "snapshot_freq": scheduling.parse_cron(None), "existing_vm_ids": [],
+        },
     )
 
 
@@ -445,7 +448,104 @@ def plan_new_submit(
         snapshot_freq = scheduling.parse_cron(snapshot_frequency)
         return templates.TemplateResponse(
             "admin/plan_form.html",
-            {"request": request, "user": user, "error": "Un plan porte déjà ce nom", "snapshot_freq": snapshot_freq},
+            {
+                "request": request, "user": user, "error": "Un plan porte déjà ce nom", "plan": None,
+                "snapshot_freq": snapshot_freq, "existing_vm_ids": selected_vms,
+            },
+            status_code=400,
+        )
+    conn.close()
+
+    error = _sync_crontab_or_error()
+    if error:
+        return RedirectResponse(f"/admin/plans?error={quote(error)}", status_code=303)
+    return RedirectResponse("/admin/plans", status_code=303)
+
+
+@router.get("/plans/{plan_id}/modifier")
+def plan_edit_form(request: Request, plan_id: int):
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    conn = get_connection()
+    plan = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    conn.close()
+    if plan is None:
+        return RedirectResponse("/admin/plans", status_code=303)
+
+    return templates.TemplateResponse(
+        "admin/plan_form.html",
+        {
+            "request": request, "user": user, "error": None, "plan": plan,
+            "snapshot_freq": scheduling.parse_cron(plan["snapshot_frequency"]),
+            "existing_vm_ids": json.loads(plan["selected_vms"] or "[]"),
+        },
+    )
+
+
+@router.post("/plans/{plan_id}/modifier")
+def plan_edit_submit(
+    request: Request,
+    plan_id: int,
+    name: str = Form(...),
+    source_ak: str = Form(""),
+    source_sk: str = Form(""),
+    source_region: str = Form(""),
+    selected_vms: list[str] = Form([]),
+    target_type: str = Form("meme_region"),
+    target_region: str = Form(""),
+    sync_endpoint: str = Form(""),
+    sync_bucket: str = Form(""),
+    sync_ak: str = Form(""),
+    sync_sk: str = Form(""),
+    target_retain_count: int = Form(7),
+    snapshot_freq_type: str = Form("quotidien"),
+    snapshot_hourly_interval: int = Form(1),
+    snapshot_time: str = Form("02:00"),
+    snapshot_days: list[int] = Form([]),
+    source_retain_count: int = Form(7),
+):
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    conn = get_connection()
+    existing = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    if existing is None:
+        conn.close()
+        return RedirectResponse("/admin/plans", status_code=303)
+
+    snapshot_frequency = scheduling.build_cron(snapshot_freq_type, snapshot_hourly_interval, snapshot_time, snapshot_days)
+    source_sk_encrypted = encrypt(source_sk) if source_sk else existing["source_sk_encrypted"]
+    sync_sk_encrypted = encrypt(sync_sk) if sync_sk else existing["sync_sk_encrypted"]
+
+    try:
+        conn.execute(
+            """
+            UPDATE plans SET
+                name = ?, source_ak = ?, source_sk_encrypted = ?, source_region = ?, selected_vms = ?,
+                target_type = ?, target_region = ?, sync_endpoint = ?, sync_bucket = ?, sync_ak = ?,
+                sync_sk_encrypted = ?, target_retain_count = ?, snapshot_frequency = ?, source_retain_count = ?
+            WHERE id = ?
+            """,
+            (
+                name, source_ak, source_sk_encrypted, source_region, json.dumps(selected_vms),
+                target_type, target_region, sync_endpoint, sync_bucket, sync_ak,
+                sync_sk_encrypted, target_retain_count, snapshot_frequency, source_retain_count,
+                plan_id,
+            ),
+        )
+        conn.commit()
+    except Exception:
+        conn.close()
+        snapshot_freq = scheduling.parse_cron(snapshot_frequency)
+        return templates.TemplateResponse(
+            "admin/plan_form.html",
+            {
+                "request": request, "user": user, "error": "Un plan porte déjà ce nom", "plan": existing,
+                "snapshot_freq": snapshot_freq, "existing_vm_ids": selected_vms,
+            },
             status_code=400,
         )
     conn.close()
@@ -481,20 +581,32 @@ def plan_test_ak(request: Request, source_ak: str = Form(""), source_sk: str = F
 
 
 @router.post("/plans/octl/scan-vms")
-def plan_scan_vms(request: Request, source_ak: str = Form(""), source_sk: str = Form(""), source_region: str = Form("")):
+def plan_scan_vms(
+    request: Request,
+    source_ak: str = Form(""),
+    source_sk: str = Form(""),
+    source_region: str = Form(""),
+    existing_selected_vms: str = Form("[]"),
+):
     user = require_admin(request)
     if isinstance(user, RedirectResponse):
         return user
 
+    try:
+        selected_ids = set(json.loads(existing_selected_vms))
+    except (ValueError, TypeError):
+        selected_ids = set()
+
     if not (source_ak and source_sk and source_region):
         return templates.TemplateResponse(
             "admin/_vm_list.html",
-            {"request": request, "vms": None, "error": "AK, SK et région requis pour scanner."},
+            {"request": request, "vms": None, "error": "AK, SK et région requis pour scanner.", "selected_ids": selected_ids},
         )
 
     if not octl.is_available():
         return templates.TemplateResponse(
-            "admin/_vm_list.html", {"request": request, "vms": None, "error": "octl n'est pas installé sur ce serveur."}
+            "admin/_vm_list.html",
+            {"request": request, "vms": None, "error": "octl n'est pas installé sur ce serveur.", "selected_ids": selected_ids},
         )
 
     try:
@@ -505,7 +617,7 @@ def plan_scan_vms(request: Request, source_ak: str = Form(""), source_sk: str = 
         error = str(exc)
 
     return templates.TemplateResponse(
-        "admin/_vm_list.html", {"request": request, "vms": vms, "error": error}
+        "admin/_vm_list.html", {"request": request, "vms": vms, "error": error, "selected_ids": selected_ids}
     )
 
 
