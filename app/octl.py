@@ -5,10 +5,12 @@ OSC_SECRET_KEY, OSC_REGION) au sous-processus, sans jamais toucher le disque.
 
 Les appels en lecture (Read*) et les créations de VPC/subnet/tags ont été
 vérifiés contre un octl réel et un compte Outscale. Les appels de création/
-modification de VM et de volume (CreateVms, CreateVolume, LinkVolume,
-UnlinkVolume, DeleteVolume, StopVms, StartVms) n'ont été vérifiés qu'avec
+modification de VM, de volume et de ressources réseau (CreateVms,
+CreateVolume, LinkVolume, UnlinkVolume, DeleteVolume, StopVms, StartVms,
+CreateSecurityGroupRule, CreateRouteTable, LinkRouteTable, CreateRoute,
+CreateInternetService, LinkInternetService) n'ont été vérifiés qu'avec
 `octl --dry-run` (syntaxe des paramètres uniquement, sans appel réel à
-l'API) — à surveiller au premier cycle de restauration réel.
+l'API) — à surveiller au premier resync/cycle de restauration réel.
 """
 import json
 import os
@@ -115,15 +117,89 @@ def list_security_groups(ak: str, sk: str, region: str) -> list:
 
 def create_security_group(ak: str, sk: str, region: str, net_id: str, name: str, description: str) -> dict:
     """Recrée un security group à l'identique (nom + description) dans le VPC
-    cible. Les règles ne sont pas répliquées (à implémenter)."""
+    cible. Les règles sont répliquées séparément par create_security_group_rule
+    (voir app/target.py)."""
     return _run(
         "CreateSecurityGroup", ak, sk, region,
         "--NetId", net_id, "--SecurityGroupName", name, "--Description", description or name,
     )
 
 
+def create_security_group_rule(
+    ak: str, sk: str, region: str, security_group_id: str, flow: str,
+    ip_protocol: str, from_port: int | None, to_port: int | None,
+    ip_ranges: list[str] | None = None, member_security_group_ids: list[str] | None = None,
+) -> None:
+    """Ajoute une règle à un security group cible. `flow` vaut 'Inbound' ou
+    'Outbound'. La règle peut cibler des plages IP (`ip_ranges`) et/ou
+    d'autres security groups du même compte cible (`member_security_group_ids`,
+    déjà résolus par l'appelant — voir app/target.py)."""
+    args = [
+        "--SecurityGroupId", security_group_id,
+        "--Flow", flow,
+        "--Rules.0.IpProtocol", ip_protocol,
+    ]
+    if from_port is not None:
+        args += ["--Rules.0.FromPortRange", str(from_port)]
+    if to_port is not None:
+        args += ["--Rules.0.ToPortRange", str(to_port)]
+    if ip_ranges:
+        args += ["--Rules.0.IpRanges", ",".join(ip_ranges)]
+    for i, sg_id in enumerate(member_security_group_ids or []):
+        args += [f"--Rules.0.SecurityGroupsMembers.{i}.SecurityGroupId", sg_id]
+    _run("CreateSecurityGroupRule", ak, sk, region, *args)
+
+
 def list_route_tables(ak: str, sk: str, region: str) -> list:
     return _run("ReadRouteTables", ak, sk, region)
+
+
+def create_route_table(ak: str, sk: str, region: str, net_id: str, name: str) -> dict:
+    """Crée une route table et la tague (Name) pour pouvoir la retrouver côté
+    cible lors d'un prochain resync — CreateRouteTable ne prend pas de nom en
+    paramètre, seul le tag permet de l'identifier (contrairement aux security
+    groups, identifiés par leur SecurityGroupName)."""
+    result = _run("CreateRouteTable", ak, sk, region, "--NetId", net_id)
+    if isinstance(result, dict):
+        route_table = result
+    elif isinstance(result, list) and result:
+        route_table = result[0]
+    else:
+        raise OctlError("CreateRouteTable n'a renvoyé aucune route table.")
+
+    route_table_id = route_table.get("RouteTableId")
+    if route_table_id and name:
+        payload = json.dumps({"ResourceIds": [route_table_id], "Tags": [{"Key": "Name", "Value": name}]})
+        _run("CreateTags", ak, sk, region, "--payload", payload)
+    return route_table
+
+
+def link_route_table(ak: str, sk: str, region: str, route_table_id: str, subnet_id: str) -> None:
+    _run("LinkRouteTable", ak, sk, region, "--RouteTableId", route_table_id, "--SubnetId", subnet_id)
+
+
+def create_route(ak: str, sk: str, region: str, route_table_id: str, destination_ip_range: str, gateway_id: str) -> None:
+    _run(
+        "CreateRoute", ak, sk, region,
+        "--RouteTableId", route_table_id, "--DestinationIpRange", destination_ip_range, "--GatewayId", gateway_id,
+    )
+
+
+def list_internet_services(ak: str, sk: str, region: str) -> list:
+    return _run("ReadInternetServices", ak, sk, region)
+
+
+def create_internet_service(ak: str, sk: str, region: str) -> dict:
+    result = _run("CreateInternetService", ak, sk, region)
+    if isinstance(result, dict):
+        return result
+    if isinstance(result, list) and result:
+        return result[0]
+    raise OctlError("CreateInternetService n'a renvoyé aucun internet service.")
+
+
+def link_internet_service(ak: str, sk: str, region: str, internet_service_id: str, net_id: str) -> None:
+    _run("LinkInternetService", ak, sk, region, "--InternetServiceId", internet_service_id, "--NetId", net_id)
 
 
 def create_snapshot(ak: str, sk: str, region: str, volume_id: str, description: str) -> dict:

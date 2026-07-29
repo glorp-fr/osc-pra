@@ -19,7 +19,7 @@
     <p class="hint" style="margin-bottom:10px">VPC cible non créé — crée-le depuis la page <a href="/admin/plans/{{ plan.id }}/modifier">Modifier</a> du plan.</p>
     {% endif %}
     <div id="resync-result" style="margin-bottom:6px"></div>
-    <p class="hint" style="margin-bottom:14px">La resynchronisation crée les subnets et security groups manquants côté cible à partir du VPC source (par nom). Les règles de security group et les tables de routage ne sont pas répliquées.</p>
+    <p class="hint" style="margin-bottom:14px">La resynchronisation crée, à partir du VPC source (par nom) : les subnets, les security groups et leurs règles, l'internet service, et les tables de routage (routes locales et vers l'internet service — les routes vers un Net peering ou une passerelle VPN ne sont pas répliquées). Les EIP et la NAT Gateway ne sont volontairement pas repris ici : une VM avec EIP la récupère (même région) ou en reçoit une nouvelle (autre région) au moment de la bascule vers le PRA.</p>
 
     <div class="phdr" style="border:none;padding:0 0 6px">
       <span class="lbl">Subnets</span>
@@ -52,11 +52,21 @@
 
     {% if vm_rows %}
     <table>
-      <thead><tr><th>VM</th><th>Points de sauvegarde disponibles</th><th>Dernier snapshot</th><th>Statut</th></tr></thead>
+      <thead><tr><th>VM</th><th>EIP après bascule</th><th>Points de sauvegarde disponibles</th><th>Dernier snapshot</th><th>Statut</th></tr></thead>
       <tbody>
         {% for row in vm_rows %}
         <tr>
           <td class="mono">{{ row.vm_id }}</td>
+          <td class="mono" style="font-size:12px">
+            {% if row.eip %}
+              {{ row.eip }}
+              <span style="color:var(--text-muted);font-family:inherit">
+                ({{ "identique à la prod" if plan.target_type == "meme_region" else "nouvelle EIP" }})
+              </span>
+            {% else %}
+            <span style="color:var(--text-muted)">—</span>
+            {% endif %}
+          </td>
           <td>{{ row.backup_points }}</td>
           <td class="mono" style="font-size:11px;color:var(--text-muted)">{{ row.last_snapshot or "—" }}</td>
           <td>

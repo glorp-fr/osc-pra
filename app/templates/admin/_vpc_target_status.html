@@ -3,11 +3,17 @@
 {% elif result %}
 <div class="ak-status success">VPC cible créé : {{ result.vpc_id }} ({{ result.ip_range }})</div>
 {% if result.sync_summary %}
+{% with summary = result.sync_summary %}
 <div class="ak-status success">
-  Subnets : {{ result.sync_summary.subnets_created }} créé(s) sur {{ result.sync_summary.subnets_total }} côté source.
-  Security groups : {{ result.sync_summary.sgs_created }} créé(s) sur {{ result.sync_summary.sgs_total }} côté source.
+  Subnets : {{ summary.subnets_created }} créé(s) sur {{ summary.subnets_total }} côté source.
+  Security groups : {{ summary.sgs_created }} créé(s) sur {{ summary.sgs_total }} côté source
+  (règles : {{ summary.sg_rules_created }} créée(s) sur {{ summary.sg_rules_total }}{% if summary.sg_rules_skipped %}, {{ summary.sg_rules_skipped }} ignorée(s){% endif %}).
+  Internet service : {{ "créé" if summary.internet_service_created else "déjà présent ou non applicable" }}.
+  Route tables : {{ summary.route_tables_created }} créée(s) sur {{ summary.route_tables_total }}
+  (routes : {{ summary.routes_created }} créée(s){% if summary.routes_skipped %}, {{ summary.routes_skipped }} ignorée(s) — Net peering, VPN, NAT Gateway ou EIP non répliqués{% endif %}).
 </div>
+{% endwith %}
 {% elif result.sync_error %}
-<div class="err-banner">VPC créé, mais la resynchronisation des subnets/security groups a échoué : {{ result.sync_error }}</div>
+<div class="err-banner">VPC créé, mais la resynchronisation des ressources réseau a échoué : {{ result.sync_error }}</div>
 {% endif %}
 {% endif %}

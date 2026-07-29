@@ -1028,6 +1028,29 @@ TARGET_RESOURCE_SCANS = {
 }
 
 
+def _enrich_vm_rows_with_eip(plan, vm_rows: list[dict]) -> None:
+    """Ajoute l'IP publique (EIP) actuelle de chaque VM source aux lignes
+    déjà calculées par _plan_vm_status, si octl est disponible — dégradation
+    silencieuse sinon (colonne EIP affichée comme indisponible). L'EIP n'est
+    pas répliquée par la resynchronisation des ressources PRA (voir
+    app/target.py) : une VM avec EIP la récupère (même région) ou en reçoit
+    une nouvelle (autre région) au moment de la bascule, pas avant."""
+    if not octl.is_available() or not (plan["source_ak"] and plan["source_sk_encrypted"] and plan["source_region"]):
+        for row in vm_rows:
+            row["eip"] = None
+        return
+    try:
+        sk = decrypt(plan["source_sk_encrypted"])
+        vms_by_id = {vm.get("VmId"): vm for vm in octl.list_vms(plan["source_ak"], sk, plan["source_region"])}
+    except octl.OctlError:
+        for row in vm_rows:
+            row["eip"] = None
+        return
+    for row in vm_rows:
+        vm = vms_by_id.get(row["vm_id"])
+        row["eip"] = vm.get("PublicIp") if vm else None
+
+
 @router.get("/plans/{plan_id}/visualiser")
 def plan_view(request: Request, plan_id: int):
     user = require_admin(request)
@@ -1041,6 +1064,7 @@ def plan_view(request: Request, plan_id: int):
         return RedirectResponse("/admin/plans", status_code=303)
 
     vm_rows, last_full_snapshot = _plan_vm_status(plan)
+    _enrich_vm_rows_with_eip(plan, vm_rows)
 
     return templates.TemplateResponse(
         "admin/plan_view.html",

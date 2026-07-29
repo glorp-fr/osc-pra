@@ -3,6 +3,10 @@
 {% elif summary %}
 <div class="ak-status success">
   Subnets : {{ summary.subnets_created }} créé(s) sur {{ summary.subnets_total }} côté source.
-  Security groups : {{ summary.sgs_created }} créé(s) sur {{ summary.sgs_total }} côté source.
+  Security groups : {{ summary.sgs_created }} créé(s) sur {{ summary.sgs_total }} côté source
+  (règles : {{ summary.sg_rules_created }} créée(s) sur {{ summary.sg_rules_total }}{% if summary.sg_rules_skipped %}, {{ summary.sg_rules_skipped }} ignorée(s){% endif %}).
+  Internet service : {{ "créé" if summary.internet_service_created else "déjà présent ou non applicable" }}.
+  Route tables : {{ summary.route_tables_created }} créée(s) sur {{ summary.route_tables_total }}
+  (routes : {{ summary.routes_created }} créée(s){% if summary.routes_skipped %}, {{ summary.routes_skipped }} ignorée(s) — Net peering, VPN, NAT Gateway ou EIP non répliqués{% endif %}).
 </div>
 {% endif %}
