@@ -7,7 +7,7 @@ from fastapi.responses import RedirectResponse
 from passlib.hash import bcrypt
 
 from app import cron, octl, scheduling
-from app.auth import ROLE_LABELS, ROLES, require_admin
+from app.auth import ROLE_LABELS, ROLES, require_admin, require_operator
 from app.crypto import decrypt, encrypt
 from app.db import DB_PATH, get_connection
 from app.jobs import last_job
@@ -451,7 +451,7 @@ def _resolve_source_vpc_id(source_vpc_id: str, plan_id: str) -> str:
 
 @router.get("/plans")
 def plans_list(request: Request, message: str | None = None, error: str | None = None):
-    user = require_admin(request)
+    user = require_operator(request)
     if isinstance(user, RedirectResponse):
         return user
 
@@ -548,7 +548,7 @@ def plan_new_submit(
 
 @router.get("/plans/{plan_id}/modifier")
 def plan_edit_form(request: Request, plan_id: int):
-    user = require_admin(request)
+    user = require_operator(request)
     if isinstance(user, RedirectResponse):
         return user
 
@@ -593,7 +593,7 @@ def plan_edit_submit(
     snapshot_days: list[int] = Form([]),
     source_retain_count: int = Form(7),
 ):
-    user = require_admin(request)
+    user = require_operator(request)
     if isinstance(user, RedirectResponse):
         return user
 
@@ -655,7 +655,7 @@ def plan_test_ak(
     source_region: str = Form(""),
     plan_id: str = Form(""),
 ):
-    user = require_admin(request)
+    user = require_operator(request)
     if isinstance(user, RedirectResponse):
         return user
 
@@ -689,7 +689,7 @@ def plan_scan_vms(
     existing_selected_vms: str = Form("[]"),
     plan_id: str = Form(""),
 ):
-    user = require_admin(request)
+    user = require_operator(request)
     if isinstance(user, RedirectResponse):
         return user
 
@@ -740,7 +740,7 @@ def plan_scan_vpcs(
     source_vpc_id: str = Form(""),
     plan_id: str = Form(""),
 ):
-    user = require_admin(request)
+    user = require_operator(request)
     if isinstance(user, RedirectResponse):
         return user
 
@@ -772,7 +772,7 @@ def plan_scan_vpcs(
 
 @router.post("/plans/{plan_id}/vpc-source")
 def plan_apply_source_vpc(request: Request, plan_id: int, source_vpc_id: str = Form("")):
-    user = require_admin(request)
+    user = require_operator(request)
     if isinstance(user, RedirectResponse):
         return user
 
@@ -801,7 +801,7 @@ def plan_apply_source_vpc(request: Request, plan_id: int, source_vpc_id: str = F
 
 @router.post("/plans/{plan_id}/vpc-cible")
 def plan_create_target_vpc(request: Request, plan_id: int):
-    user = require_admin(request)
+    user = require_operator(request)
     if isinstance(user, RedirectResponse):
         return user
 
@@ -904,7 +904,7 @@ def plan_enable(request: Request, plan_id: int):
 
 @router.post("/plans/{plan_id}/lancer")
 def plan_run_now(request: Request, plan_id: int):
-    user = require_admin(request)
+    user = require_operator(request)
     if isinstance(user, RedirectResponse):
         return user
 
@@ -1053,7 +1053,7 @@ def _enrich_vm_rows_with_eip(plan, vm_rows: list[dict]) -> None:
 
 @router.get("/plans/{plan_id}/visualiser")
 def plan_view(request: Request, plan_id: int):
-    user = require_admin(request)
+    user = require_operator(request)
     if isinstance(user, RedirectResponse):
         return user
 
@@ -1083,7 +1083,7 @@ def plan_view(request: Request, plan_id: int):
 def plan_view_scan_target(request: Request, plan_id: int, resource_type: str):
     """Scanne une ressource (subnets/security groups/route tables) côté
     compte cible et ne garde que celles qui appartiennent au VPC de PRA."""
-    user = require_admin(request)
+    user = require_operator(request)
     if isinstance(user, RedirectResponse):
         return user
 
@@ -1135,11 +1135,9 @@ def plan_view_scan_target(request: Request, plan_id: int, resource_type: str):
 
 @router.post("/plans/{plan_id}/visualiser/resync")
 def plan_view_resync(request: Request, plan_id: int):
-    """Recrée côté compte cible les subnets et security groups du VPC source
-    qui n'existent pas encore côté VPC de PRA (identifiés par leur tag/nom).
-    Les règles de security group et les tables de routage ne sont pas
-    répliquées (à implémenter)."""
-    user = require_admin(request)
+    """Resynchronise les ressources réseau du VPC de PRA depuis le VPC
+    source (voir app.target.sync_target_network)."""
+    user = require_operator(request)
     if isinstance(user, RedirectResponse):
         return user
 

@@ -1,7 +1,34 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="stitle" style="margin-bottom:4px">Visualiser — {{ plan.name }}</div>
-<p style="margin-bottom:16px"><a href="/admin/plans">&larr; Retour aux plans</a></p>
+<p style="margin-bottom:4px"><a href="/admin/plans">&larr; Retour aux plans</a></p>
+<div class="phdr" style="padding:0 0 16px;border:none">
+  <span class="stitle">{{ plan.name }} <span class="bdg {{ 'actif' if plan.active else 'inactif' }}">{{ "Actif" if plan.active else "Désactivé" }}</span></span>
+</div>
+
+<div class="card">
+  <div class="pbody actions" style="display:flex;gap:10px;flex-wrap:wrap">
+    <a href="/admin/plans/{{ plan.id }}/modifier" class="btn sm ghost">Modifier la configuration</a>
+    {% if plan.active %}
+    <form method="post" action="/admin/plans/{{ plan.id }}/lancer">
+      <button type="submit" class="btn sm ghost">Lancer le plan (synchro)</button>
+    </form>
+    {% endif %}
+    <button type="button" class="btn sm ghost" disabled data-tooltip="Bascule vers le PRA : pas encore implémentée">Basculer vers le PRA</button>
+    {% if user.role == "admin" %}
+    {% if plan.active %}
+    <form method="post" action="/admin/plans/{{ plan.id }}/desactiver">
+      <button type="submit" class="btn sm ghost">Désactiver</button>
+    </form>
+    {% else %}
+    <form method="post" action="/admin/plans/{{ plan.id }}/activer">
+      <button type="submit" class="btn sm ghost">Activer</button>
+    </form>
+    {% endif %}
+    <button type="button" class="btn sm ghost" disabled data-tooltip="Aucune donnée de job disponible">Exporter le journal</button>
+    <a href="/admin/plans/{{ plan.id }}/supprimer" class="btn sm red">Supprimer</a>
+    {% endif %}
+  </div>
+</div>
 
 {% if not octl_available %}
 <div class="err-banner" style="margin-bottom:16px">octl n'est pas installé sur ce serveur — les scans et la resynchronisation échoueront.</div>

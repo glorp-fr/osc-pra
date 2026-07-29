@@ -26,3 +26,16 @@ def require_admin(request: Request):
     if user["role"] != "admin":
         return RedirectResponse("/suivi", status_code=303)
     return user
+
+
+def require_operator(request: Request):
+    """Zone Opérateur (voir CLAUDE.MD) : gestion des plans de reprise
+    (consultation, configuration, resynchronisation, lancement), ouverte
+    aux rôles admin et opérateur — contrairement à require_admin, réservé
+    aux réglages globaux et à la gestion des comptes."""
+    user = require_login(request)
+    if isinstance(user, RedirectResponse):
+        return user
+    if user["role"] not in ("admin", "operateur"):
+        return RedirectResponse("/suivi", status_code=303)
+    return user

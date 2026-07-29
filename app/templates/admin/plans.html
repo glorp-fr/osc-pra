@@ -2,7 +2,9 @@
 {% block content %}
 <div class="phdr" style="padding:0 0 16px;border:none">
   <span class="stitle">Plans de reprise</span>
+  {% if user.role == "admin" %}
   <a href="/admin/plans/nouveau" class="btn blue">+ Nouveau plan</a>
+  {% endif %}
 </div>
 
 {% if error %}<div class="err-banner" style="margin-bottom:16px">{{ error }}</div>{% endif %}
@@ -12,32 +14,12 @@
 <div class="card">
   <div class="pbody">
     <table>
-      <thead><tr><th>Nom</th><th>Cible</th><th>Statut</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Nom</th><th>Statut</th></tr></thead>
       <tbody>
         {% for plan in plans %}
         <tr>
-          <td>{{ plan.name }}</td>
-          <td>{{ "Même région" if plan.target_type == "meme_region" else "Autre région (" ~ plan.target_region ~ ")" }}</td>
+          <td><a href="/admin/plans/{{ plan.id }}/visualiser">{{ plan.name }}</a></td>
           <td><span class="bdg {{ 'actif' if plan.active else 'inactif' }}">{{ "Actif" if plan.active else "Désactivé" }}</span></td>
-          <td class="actions">
-            {% if plan.active %}
-            <form method="post" action="/admin/plans/{{ plan.id }}/desactiver">
-              <button type="submit" class="btn sm ghost">Désactiver</button>
-            </form>
-            <form method="post" action="/admin/plans/{{ plan.id }}/lancer">
-              <button type="submit" class="btn sm ghost">Lancer maintenant</button>
-            </form>
-            {% else %}
-            <form method="post" action="/admin/plans/{{ plan.id }}/activer">
-              <button type="submit" class="btn sm ghost">Activer</button>
-            </form>
-            {% endif %}
-            <a href="/admin/plans/{{ plan.id }}/visualiser" class="btn sm ghost">Visualiser</a>
-            <a href="/admin/plans/{{ plan.id }}/modifier" class="btn sm ghost">Modifier</a>
-            <a href="/admin/plans/{{ plan.id }}/ressources" class="btn sm ghost">Ressources</a>
-            <a href="/admin/plans/{{ plan.id }}/supprimer" class="btn sm red">Supprimer</a>
-            <button type="button" class="btn sm ghost" disabled data-tooltip="Aucune donnée de job disponible">Exporter le journal</button>
-          </td>
         </tr>
         {% endfor %}
       </tbody>
