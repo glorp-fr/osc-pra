@@ -19,6 +19,12 @@ LOG_FILE = APP_DIR / "data" / "cron.log"
 MARK_BEGIN = "# BEGIN OSC-PRA (généré automatiquement — ne pas éditer à la main)"
 MARK_END = "# END OSC-PRA"
 
+# cron (contrairement au service systemd) n'hérite d'aucun PATH utilisable :
+# sans cette ligne, le PATH par défaut du démon cron (/usr/bin:/bin) ne
+# contient pas /usr/local/bin, où octl est installé, et les jobs échouent
+# systématiquement avec "octl n'est pas installé sur ce serveur".
+CRON_PATH = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
 
 class CronError(Exception):
     pass
@@ -49,7 +55,7 @@ def build_cron_lines() -> list[str]:
                 f">> {LOG_FILE} 2>&1"
             )
 
-    return lines
+    return [CRON_PATH, *lines] if lines else []
 
 
 def sync_crontab() -> None:
