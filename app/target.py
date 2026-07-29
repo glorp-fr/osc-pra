@@ -115,11 +115,26 @@ def _sync_security_groups(plan, source_ak, source_sk, target_ak, target_sk, targ
     return source_sgs, existing_by_name, created
 
 
+def _normalize_ports(ip_protocol: str, from_port, to_port) -> tuple:
+    """tcp/udp exigent une plage de ports explicite côté API ; ReadSecurityGroups
+    omet parfois FromPortRange quand il vaut 0. Même défaut que
+    octl.create_security_group_rule, appliqué ici aussi pour que la
+    signature d'une règle source (FromPortRange absent) corresponde à celle
+    de la même règle une fois créée côté cible (FromPortRange=0 explicite),
+    et rester idempotent d'un resync à l'autre."""
+    if ip_protocol in ("tcp", "udp"):
+        from_port = 0 if from_port is None else from_port
+        to_port = 65535 if to_port is None else to_port
+    return from_port, to_port
+
+
 def _rule_signature(rule: dict, member_names: tuple) -> tuple:
+    ip_protocol = rule.get("IpProtocol")
+    from_port, to_port = _normalize_ports(ip_protocol, rule.get("FromPortRange"), rule.get("ToPortRange"))
     return (
-        rule.get("IpProtocol"),
-        rule.get("FromPortRange"),
-        rule.get("ToPortRange"),
+        ip_protocol,
+        from_port,
+        to_port,
         tuple(sorted(rule.get("IpRanges", []) or [])),
         member_names,
     )
@@ -171,22 +186,15 @@ def _sync_security_group_rules(target_ak, target_sk, target_region, source_sgs, 
                 if _rule_signature(rule, member_names) in existing_signatures[flow]:
                     continue
 
-                member_target_ids = []
-                unresolved = False
-                for member_name in member_names:
-                    target_member = target_sgs_by_name.get(member_name)
-                    if target_member is None:
-                        unresolved = True
-                        break
-                    member_target_ids.append(target_member.get("SecurityGroupId"))
-                if unresolved:
+                if any(target_sgs_by_name.get(member_name) is None for member_name in member_names):
                     skipped += 1
                     continue
 
+                from_port, to_port = _normalize_ports(rule.get("IpProtocol"), rule.get("FromPortRange"), rule.get("ToPortRange"))
                 octl.create_security_group_rule(
                     target_ak, target_sk, target_region, target_sg_id, flow,
-                    rule.get("IpProtocol", "-1"), rule.get("FromPortRange"), rule.get("ToPortRange"),
-                    ip_ranges=ip_ranges or None, member_security_group_ids=member_target_ids or None,
+                    rule.get("IpProtocol", "-1"), from_port, to_port,
+                    ip_ranges=ip_ranges or None, member_security_group_names=list(member_names) or None,
                 )
                 created += 1
 

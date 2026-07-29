@@ -128,26 +128,47 @@ def create_security_group(ak: str, sk: str, region: str, net_id: str, name: str,
 def create_security_group_rule(
     ak: str, sk: str, region: str, security_group_id: str, flow: str,
     ip_protocol: str, from_port: int | None, to_port: int | None,
-    ip_ranges: list[str] | None = None, member_security_group_ids: list[str] | None = None,
+    ip_ranges: list[str] | None = None, member_security_group_names: list[str] | None = None,
 ) -> None:
     """Ajoute une règle à un security group cible. `flow` vaut 'Inbound' ou
     'Outbound'. La règle peut cibler des plages IP (`ip_ranges`) et/ou
-    d'autres security groups du même compte cible (`member_security_group_ids`,
-    déjà résolus par l'appelant — voir app/target.py)."""
-    args = [
+    d'autres security groups du même compte cible par leur nom
+    (`member_security_group_names`).
+
+    Utilise la forme "plate" des paramètres (--IpRange, un par appel) et non
+    la forme tableau (--Rules.0.IpRanges) : cette dernière *omet du payload*
+    les entiers valant 0 (bug/quirk octl constaté en pratique — une règle
+    tcp avec FromPortRange=0 se voit alors attribuer -1 par défaut côté API,
+    invalide pour tcp/udp). Une règle avec plusieurs IP/SG déclenche donc
+    plusieurs appels API, un par IP/SG référencé, plutôt qu'un seul appel
+    batché.
+
+    Pour tcp/udp, FromPortRange/ToPortRange sont toujours envoyés
+    explicitement (défaut 0/65535 si absents) : ReadSecurityGroups omet
+    parfois FromPortRange quand il vaut 0 (vu en pratique sur des règles
+    réelles), et -1 (défaut API si le flag est omis) est invalide pour
+    tcp/udp — l'API exige une plage de ports explicite pour ces protocoles,
+    -1 n'étant valide que pour icmp ou le protocole 'all'/-1."""
+    if ip_protocol in ("tcp", "udp"):
+        if from_port is None:
+            from_port = 0
+        if to_port is None:
+            to_port = 65535
+
+    base_args = [
         "--SecurityGroupId", security_group_id,
         "--Flow", flow,
-        "--Rules.0.IpProtocol", ip_protocol,
+        "--IpProtocol", ip_protocol,
     ]
     if from_port is not None:
-        args += ["--Rules.0.FromPortRange", str(from_port)]
+        base_args += ["--FromPortRange", str(from_port)]
     if to_port is not None:
-        args += ["--Rules.0.ToPortRange", str(to_port)]
-    if ip_ranges:
-        args += ["--Rules.0.IpRanges", ",".join(ip_ranges)]
-    for i, sg_id in enumerate(member_security_group_ids or []):
-        args += [f"--Rules.0.SecurityGroupsMembers.{i}.SecurityGroupId", sg_id]
-    _run("CreateSecurityGroupRule", ak, sk, region, *args)
+        base_args += ["--ToPortRange", str(to_port)]
+
+    targets = [("--IpRange", ip) for ip in (ip_ranges or [])]
+    targets += [("--SecurityGroupNameToLink", name) for name in (member_security_group_names or [])]
+    for flag, value in targets:
+        _run("CreateSecurityGroupRule", ak, sk, region, *base_args, flag, value)
 
 
 def list_route_tables(ak: str, sk: str, region: str) -> list:
