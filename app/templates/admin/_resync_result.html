@@ -1,0 +1,8 @@
+{% if error %}
+<div class="err-banner">{{ error }}</div>
+{% elif summary %}
+<div class="ak-status success">
+  Subnets : {{ summary.subnets_created }} créé(s) sur {{ summary.subnets_total }} côté source.
+  Security groups : {{ summary.sgs_created }} créé(s) sur {{ summary.sgs_total }} côté source.
+</div>
+{% endif %}

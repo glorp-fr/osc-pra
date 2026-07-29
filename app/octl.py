@@ -91,8 +91,28 @@ def create_vpc(ak: str, sk: str, region: str, ip_range: str, name: str) -> dict:
     return net
 
 
+def create_subnet(ak: str, sk: str, region: str, net_id: str, ip_range: str, name: str) -> dict:
+    """Recrée un subnet à l'identique (même IpRange) dans le VPC cible,
+    avec un tag Name pour le retrouver côté cible."""
+    subnet = _run("CreateSubnet", ak, sk, region, "--NetId", net_id, "--IpRange", ip_range)
+    subnet_id = subnet.get("SubnetId") if isinstance(subnet, dict) else None
+    if subnet_id and name:
+        payload = json.dumps({"ResourceIds": [subnet_id], "Tags": [{"Key": "Name", "Value": name}]})
+        _run("CreateTags", ak, sk, region, "--payload", payload)
+    return subnet
+
+
 def list_security_groups(ak: str, sk: str, region: str) -> list:
     return _run("ReadSecurityGroups", ak, sk, region)
+
+
+def create_security_group(ak: str, sk: str, region: str, net_id: str, name: str, description: str) -> dict:
+    """Recrée un security group à l'identique (nom + description) dans le VPC
+    cible. Les règles ne sont pas répliquées (à implémenter)."""
+    return _run(
+        "CreateSecurityGroup", ak, sk, region,
+        "--NetId", net_id, "--SecurityGroupName", name, "--Description", description or name,
+    )
 
 
 def list_route_tables(ak: str, sk: str, region: str) -> list:

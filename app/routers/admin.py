@@ -382,6 +382,80 @@ def _resolve_source_sk(source_sk: str, plan_id: str) -> str:
     return source_sk
 
 
+def _resolve_target_credentials(plan) -> tuple[str, str, str, str | None]:
+    """En 'même région', le compte cible est le compte source ; en 'autre
+    région', ce sont les AK/SK dédiés du plan (même logique que la création
+    du VPC cible)."""
+    if plan["target_type"] == "autre_region":
+        target_ak = plan["target_ak"]
+        target_sk = decrypt(plan["target_sk_encrypted"]) if plan["target_sk_encrypted"] else ""
+        target_region = plan["target_region"]
+        if not (target_ak and target_sk and target_region):
+            return "", "", "", "AK/SK et région du compte cible requis pour ce plan."
+        return target_ak, target_sk, target_region, None
+
+    target_ak = plan["source_ak"]
+    target_sk = decrypt(plan["source_sk_encrypted"]) if plan["source_sk_encrypted"] else ""
+    target_region = plan["source_region"]
+    if not (target_ak and target_sk and target_region):
+        return "", "", "", "AK/SK et région source requis pour ce plan."
+    return target_ak, target_sk, target_region, None
+
+
+def _plan_vm_status(plan) -> tuple[list[dict], str | None]:
+    """Pour chaque VM sélectionnée du plan : nombre de points de sauvegarde
+    réussis, date du dernier snapshot, et statut dérivé de l'état actif du
+    plan et du dernier job (Défaillant si le dernier job de cette VM est en
+    erreur). Retourne aussi la dernière date à laquelle TOUTES les VMs
+    sélectionnées ont un snapshot réussi (dernier point de restauration
+    complet du plan)."""
+    selected_vms = json.loads(plan["selected_vms"] or "[]")
+    if not selected_vms:
+        return [], None
+
+    conn = get_connection()
+    jobs = conn.execute(
+        "SELECT vm_id, status, started_at FROM jobs "
+        "WHERE plan_id = ? AND job_type = 'snapshot' AND vm_id IS NOT NULL "
+        "ORDER BY started_at",
+        (plan["id"],),
+    ).fetchall()
+    conn.close()
+
+    by_vm: dict[str, list] = {}
+    for job in jobs:
+        by_vm.setdefault(job["vm_id"], []).append(job)
+
+    rows = []
+    success_dates_by_vm = {}
+    for vm_id in selected_vms:
+        vm_jobs = by_vm.get(vm_id, [])
+        success_jobs = [j for j in vm_jobs if j["status"] == "success"]
+        last_job = vm_jobs[-1] if vm_jobs else None
+
+        if not plan["active"]:
+            status = "desactive"
+        elif last_job is not None and last_job["status"] == "error":
+            status = "defaillant"
+        else:
+            status = "actif"
+
+        rows.append({
+            "vm_id": vm_id,
+            "backup_points": len(success_jobs),
+            "last_snapshot": success_jobs[-1]["started_at"] if success_jobs else None,
+            "status": status,
+        })
+        success_dates_by_vm[vm_id] = {j["started_at"][:10] for j in success_jobs}
+
+    common_dates = None
+    for dates in success_dates_by_vm.values():
+        common_dates = dates if common_dates is None else common_dates & dates
+    last_full_date = max(common_dates) if common_dates else None
+
+    return rows, last_full_date
+
+
 def _resolve_source_vpc_id(source_vpc_id: str, plan_id: str) -> str:
     """Idem _resolve_source_sk : si le VPC source n'a pas été (re)scanné dans
     ce chargement de page, on retombe sur celui déjà enregistré sur le plan."""
@@ -956,4 +1030,189 @@ def plan_resources_scan(request: Request, plan_id: int, resource_type: str):
 
     return templates.TemplateResponse(
         "admin/_resource_list.html", {"request": request, "items": items, "error": error}
+    )
+
+
+# --- Visualisation d'un plan (vue d'ensemble) --------------------------------
+
+TARGET_RESOURCE_SCANS = {
+    "subnets": (octl.list_subnets, "NetId"),
+    "security-groups": (octl.list_security_groups, "NetId"),
+    "route-tables": (octl.list_route_tables, "NetId"),
+}
+
+
+@router.get("/plans/{plan_id}/visualiser")
+def plan_view(request: Request, plan_id: int):
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    conn = get_connection()
+    plan = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    conn.close()
+    if plan is None:
+        return RedirectResponse("/admin/plans", status_code=303)
+
+    vm_rows, last_full_snapshot = _plan_vm_status(plan)
+
+    return templates.TemplateResponse(
+        "admin/plan_view.html",
+        {
+            "request": request,
+            "user": user,
+            "plan": plan,
+            "octl_available": octl.is_available(),
+            "vm_rows": vm_rows,
+            "last_full_snapshot": last_full_snapshot,
+        },
+    )
+
+
+@router.post("/plans/{plan_id}/visualiser/scan/{resource_type}")
+def plan_view_scan_target(request: Request, plan_id: int, resource_type: str):
+    """Scanne une ressource (subnets/security groups/route tables) côté
+    compte cible et ne garde que celles qui appartiennent au VPC de PRA."""
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    entry = TARGET_RESOURCE_SCANS.get(resource_type)
+    if entry is None:
+        return templates.TemplateResponse(
+            "admin/_resource_list.html", {"request": request, "items": None, "error": "Type de ressource inconnu."}
+        )
+    scan_fn, net_id_field = entry
+
+    conn = get_connection()
+    plan = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    conn.close()
+    if plan is None:
+        return templates.TemplateResponse(
+            "admin/_resource_list.html", {"request": request, "items": None, "error": "Plan introuvable."}
+        )
+
+    if not plan["target_vpc_id"]:
+        return templates.TemplateResponse(
+            "admin/_resource_list.html",
+            {"request": request, "items": None, "error": "VPC cible non créé — crée-le depuis la page Modifier du plan."},
+        )
+
+    if not octl.is_available():
+        return templates.TemplateResponse(
+            "admin/_resource_list.html",
+            {"request": request, "items": None, "error": "octl n'est pas installé sur ce serveur."},
+        )
+
+    target_ak, target_sk, target_region, error = _resolve_target_credentials(plan)
+    if error:
+        return templates.TemplateResponse(
+            "admin/_resource_list.html", {"request": request, "items": None, "error": error}
+        )
+
+    try:
+        items = scan_fn(target_ak, target_sk, target_region)
+        items = [item for item in items if item.get(net_id_field) == plan["target_vpc_id"]]
+        error = None
+    except octl.OctlError as exc:
+        items = None
+        error = str(exc)
+
+    return templates.TemplateResponse(
+        "admin/_resource_list.html", {"request": request, "items": items, "error": error}
+    )
+
+
+def _tag_name(resource: dict, fallback: str) -> str:
+    return next((t["Value"] for t in resource.get("Tags", []) if t.get("Key") == "Name"), fallback)
+
+
+@router.post("/plans/{plan_id}/visualiser/resync")
+def plan_view_resync(request: Request, plan_id: int):
+    """Recrée côté compte cible les subnets et security groups du VPC source
+    qui n'existent pas encore côté VPC de PRA (identifiés par leur tag/nom).
+    Les règles de security group et les tables de routage ne sont pas
+    répliquées (à implémenter)."""
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    conn = get_connection()
+    plan = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    conn.close()
+    if plan is None:
+        return templates.TemplateResponse(
+            "admin/_resync_result.html", {"request": request, "error": "Plan introuvable.", "summary": None}
+        )
+
+    if not (plan["source_vpc_id"] and plan["target_vpc_id"]):
+        return templates.TemplateResponse(
+            "admin/_resync_result.html",
+            {"request": request, "error": "VPC source et VPC cible requis avant de resynchroniser.", "summary": None},
+        )
+
+    if not octl.is_available():
+        return templates.TemplateResponse(
+            "admin/_resync_result.html",
+            {"request": request, "error": "octl n'est pas installé sur ce serveur.", "summary": None},
+        )
+
+    target_ak, target_sk, target_region, error = _resolve_target_credentials(plan)
+    if error:
+        return templates.TemplateResponse(
+            "admin/_resync_result.html", {"request": request, "error": error, "summary": None}
+        )
+
+    source_sk = decrypt(plan["source_sk_encrypted"]) if plan["source_sk_encrypted"] else ""
+
+    try:
+        source_subnets = [
+            s for s in octl.list_subnets(plan["source_ak"], source_sk, plan["source_region"])
+            if s.get("NetId") == plan["source_vpc_id"]
+        ]
+        target_subnets = [
+            s for s in octl.list_subnets(target_ak, target_sk, target_region)
+            if s.get("NetId") == plan["target_vpc_id"]
+        ]
+        existing_subnet_names = {_tag_name(s, s.get("SubnetId")) for s in target_subnets}
+
+        subnets_created = 0
+        for subnet in source_subnets:
+            name = _tag_name(subnet, subnet.get("SubnetId"))
+            if name in existing_subnet_names:
+                continue
+            octl.create_subnet(target_ak, target_sk, target_region, plan["target_vpc_id"], subnet["IpRange"], name)
+            subnets_created += 1
+
+        source_sgs = [
+            g for g in octl.list_security_groups(plan["source_ak"], source_sk, plan["source_region"])
+            if g.get("NetId") == plan["source_vpc_id"] and g.get("SecurityGroupName") != "default"
+        ]
+        target_sgs = [
+            g for g in octl.list_security_groups(target_ak, target_sk, target_region)
+            if g.get("NetId") == plan["target_vpc_id"]
+        ]
+        existing_sg_names = {g.get("SecurityGroupName") for g in target_sgs}
+
+        sgs_created = 0
+        for sg in source_sgs:
+            name = sg.get("SecurityGroupName")
+            if not name or name in existing_sg_names:
+                continue
+            octl.create_security_group(target_ak, target_sk, target_region, plan["target_vpc_id"], name, sg.get("Description", ""))
+            sgs_created += 1
+
+        summary = {
+            "subnets_created": subnets_created,
+            "subnets_total": len(source_subnets),
+            "sgs_created": sgs_created,
+            "sgs_total": len(source_sgs),
+        }
+        error = None
+    except octl.OctlError as exc:
+        summary = None
+        error = str(exc)
+
+    return templates.TemplateResponse(
+        "admin/_resync_result.html", {"request": request, "summary": summary, "error": error}
     )
