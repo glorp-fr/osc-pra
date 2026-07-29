@@ -54,12 +54,35 @@ Limitations déjà identifiées dans le code (`app/restore.py`,
 `scripts/run_plan.py`) et non couvertes par les points ci-dessus :
 
 - Réplication cross-région (export/import de snapshot via S3).
-- Réplication des règles de security group et des tables de routage
-  (seuls les subnets et security groups eux-mêmes sont resynchronisés).
+- Resync réseau : routes vers un Net peering ou une passerelle VPN non
+  répliquées (ressources elles-mêmes hors scope) ; EIP et NAT Gateway
+  volontairement exclus du resync, repris seulement à la bascule (non
+  implémentée — voir point ci-dessous).
 - Restauration BSU : ne gère que les devices déjà présents sur la VM
   cible lors d'un cycle de mise à jour (un nouveau volume attaché côté
   source après la création de la VM cible n'est pas répliqué
   automatiquement).
-- Les appels octl de création/modification de VM et de volume
-  (`CreateVms`, `CreateVolume`, `LinkVolume`...) n'ont été vérifiés qu'en
-  syntaxe (`octl --dry-run`), jamais exécutés en conditions réelles.
+- **Bascule (basculement vers le PRA) non implémentée** : la VM cible est
+  créée/tenue à jour à l'arrêt, mais rien ne démarre automatiquement le
+  failover — c'est aujourd'hui une action manuelle hors de l'app
+  (démarrer la VM cible, réassocier l'EIP). C'est aussi à cette étape que
+  l'EIP source devrait être détachée de la VM source et réattachée à la
+  VM cible (même région) ou qu'une nouvelle EIP devrait être allouée et
+  associée (autre région).
+- **Bug réel découvert le 2026-07-29, plan test-snc** : la création de la
+  VM cible échoue avec `The ImageId 'ami-5d7dbfbb' doesn't exist.` — l'AMI
+  utilisée au lancement de la VM source a depuis été supprimée/dérégistrée
+  (la VM source continue de tourner dessus normalement, mais on ne peut
+  plus lancer une *nouvelle* VM depuis cette même AMI). `restore.py`
+  utilise directement `source_vm["ImageId"]`, qui n'est donc pas fiable
+  dans la durée. Piste : générer une image à partir de la VM source
+  (`CreateImage`) au moment de la restauration plutôt que de réutiliser
+  l'AMI d'origine — mais ça ajoute un cycle d'attente (image "available")
+  et un nettoyage des images obsolètes à gérer.
+- Les appels octl de création/modification de VM, de volume et de
+  ressources réseau (`CreateVms`, `CreateVolume`, `LinkVolume`,
+  `CreateSecurityGroupRule`, `CreateRouteTable`, `CreateInternetService`...)
+  n'ont été vérifiés qu'en syntaxe (`octl --dry-run`), jamais exécutés
+  contre l'API réelle par Claude — mais CreateVms l'a été par un
+  utilisateur réel (voir bug ci-dessus), donc le chemin d'exécution jusqu'à
+  cet appel est confirmé fonctionnel.
