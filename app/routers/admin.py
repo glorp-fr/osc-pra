@@ -11,7 +11,8 @@ from app.auth import ROLE_LABELS, ROLES, require_admin, require_operator
 from app.crypto import decrypt, encrypt
 from app.db import DB_PATH, get_connection
 from app.jobs import last_job
-from app.target import resolve_target_credentials, sync_target_network
+from app.resource_scan import get_cached_source_counts, scan_and_cache_source
+from app.target import count_vpc_resources, resolve_target_credentials, sync_target_network
 from app.templates_env import templates
 
 router = APIRouter(prefix="/admin")
@@ -1028,6 +1029,66 @@ TARGET_RESOURCE_SCANS = {
 }
 
 
+RESOURCE_LABELS = {
+    "subnets": "Subnets",
+    "security_groups": "Security groups",
+    "route_tables": "Route tables",
+    "internet_services": "Internet service",
+}
+
+
+def _resource_comparison(plan) -> dict:
+    """Construit le tableau de comparaison VPC source / VPC cible affiché
+    sur la page Visualiser : décompte par type de ressource (source depuis
+    le cache rescanné toutes les heures, cible en direct) et détection d'un
+    écart entre les deux."""
+    cached = get_cached_source_counts(plan["id"])
+    source_error = cached["error"] if cached else None
+    source_counts = None
+    if cached and cached["error"] is None:
+        source_counts = {
+            "subnets": cached["subnets_count"],
+            "security_groups": cached["security_groups_count"],
+            "route_tables": cached["route_tables_count"],
+            "internet_services": cached["internet_services_count"],
+        }
+    scanned_at = cached["scanned_at"] if cached else None
+
+    target_counts = None
+    target_error = None
+    if not plan["target_vpc_id"]:
+        target_error = "VPC cible non créé."
+    elif not octl.is_available():
+        target_error = "octl n'est pas installé sur ce serveur."
+    else:
+        target_ak, target_sk, target_region, error = resolve_target_credentials(plan)
+        if error:
+            target_error = error
+        else:
+            try:
+                target_counts = count_vpc_resources(target_ak, target_sk, target_region, plan["target_vpc_id"])
+            except octl.OctlError as exc:
+                target_error = str(exc)
+
+    rows = []
+    mismatch = False
+    for key, label in RESOURCE_LABELS.items():
+        source_value = source_counts[key] if source_counts else None
+        target_value = target_counts[key] if target_counts else None
+        row_mismatch = source_value is not None and target_value is not None and source_value != target_value
+        if row_mismatch:
+            mismatch = True
+        rows.append({"label": label, "source": source_value, "target": target_value, "mismatch": row_mismatch})
+
+    return {
+        "rows": rows,
+        "mismatch": mismatch,
+        "source_error": source_error,
+        "target_error": target_error,
+        "scanned_at": scanned_at,
+    }
+
+
 def _enrich_vm_rows_with_eip(plan, vm_rows: list[dict]) -> None:
     """Ajoute l'IP publique (EIP) actuelle de chaque VM source aux lignes
     déjà calculées par _plan_vm_status, si octl est disponible — dégradation
@@ -1075,8 +1136,26 @@ def plan_view(request: Request, plan_id: int):
             "octl_available": octl.is_available(),
             "vm_rows": vm_rows,
             "last_full_snapshot": last_full_snapshot,
+            "resources": _resource_comparison(plan),
         },
     )
+
+
+@router.post("/plans/{plan_id}/visualiser/rescan-source")
+def plan_view_rescan_source(request: Request, plan_id: int):
+    """Rescan manuel du VPC source (le même rescan tourne automatiquement
+    toutes les heures pour tous les plans — voir app/resource_scan.py)."""
+    user = require_operator(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    conn = get_connection()
+    plan = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    conn.close()
+    if plan is not None:
+        scan_and_cache_source(plan)
+
+    return RedirectResponse(f"/admin/plans/{plan_id}/visualiser", status_code=303)
 
 
 @router.post("/plans/{plan_id}/visualiser/scan/{resource_type}")

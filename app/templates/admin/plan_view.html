@@ -36,35 +36,51 @@
 
 <div class="card">
   <div class="phdr">
-    <span class="stitle" style="font-size:14px">Ressources PRA (VPC cible)</span>
-    <button class="btn sm ghost" hx-post="/admin/plans/{{ plan.id }}/visualiser/resync" hx-target="#resync-result" hx-swap="innerHTML">Mettre à jour depuis la source</button>
+    <span class="stitle" style="font-size:14px">
+      Ressources PRA
+      {% if resources.mismatch %}
+      <span class="bdg error">⚠ Écart détecté</span>
+      {% elif resources.source_error or resources.target_error %}
+      <span class="bdg error">⚠ Comparaison impossible</span>
+      {% endif %}
+    </span>
+    <span style="display:flex;gap:8px">
+      <form method="post" action="/admin/plans/{{ plan.id }}/visualiser/rescan-source">
+        <button type="submit" class="btn sm ghost">Rescanner le VPC source</button>
+      </form>
+      <button class="btn sm ghost" hx-post="/admin/plans/{{ plan.id }}/visualiser/resync" hx-target="#resync-result" hx-swap="innerHTML">Mettre à jour depuis la source</button>
+    </span>
   </div>
   <div class="pbody">
-    {% if plan.target_vpc_id %}
-    <p class="hint" style="margin-bottom:10px">VPC cible : <span class="mono">{{ plan.target_vpc_id }}</span></p>
-    {% else %}
-    <p class="hint" style="margin-bottom:10px">VPC cible non créé — crée-le depuis la page <a href="/admin/plans/{{ plan.id }}/modifier">Modifier</a> du plan.</p>
-    {% endif %}
     <div id="resync-result" style="margin-bottom:6px"></div>
-    <p class="hint" style="margin-bottom:14px">La resynchronisation crée, à partir du VPC source (par nom) : les subnets, les security groups et leurs règles, l'internet service, et les tables de routage (routes locales et vers l'internet service — les routes vers un Net peering ou une passerelle VPN ne sont pas répliquées). Les EIP et la NAT Gateway ne sont volontairement pas repris ici : une VM avec EIP la récupère (même région) ou en reçoit une nouvelle (autre région) au moment de la bascule vers le PRA.</p>
 
-    <div class="phdr" style="border:none;padding:0 0 6px">
-      <span class="lbl">Subnets</span>
-      <button class="btn sm ghost" hx-post="/admin/plans/{{ plan.id }}/visualiser/scan/subnets" hx-target="#target-subnets" hx-swap="innerHTML">Scanner</button>
-    </div>
-    <div id="target-subnets" style="margin-bottom:14px"><p class="hint">Pas encore scanné.</p></div>
+    {% if resources.source_error %}
+    <div class="err-banner" style="margin-bottom:10px">VPC source : {{ resources.source_error }}</div>
+    {% endif %}
+    {% if resources.target_error %}
+    <div class="err-banner" style="margin-bottom:10px">VPC cible : {{ resources.target_error }}</div>
+    {% endif %}
 
-    <div class="phdr" style="border:none;padding:0 0 6px">
-      <span class="lbl">Security groups</span>
-      <button class="btn sm ghost" hx-post="/admin/plans/{{ plan.id }}/visualiser/scan/security-groups" hx-target="#target-sgs" hx-swap="innerHTML">Scanner</button>
-    </div>
-    <div id="target-sgs" style="margin-bottom:14px"><p class="hint">Pas encore scanné.</p></div>
-
-    <div class="phdr" style="border:none;padding:0 0 6px">
-      <span class="lbl">Route tables</span>
-      <button class="btn sm ghost" hx-post="/admin/plans/{{ plan.id }}/visualiser/scan/route-tables" hx-target="#target-rts" hx-swap="innerHTML">Scanner</button>
-    </div>
-    <div id="target-rts"><p class="hint">Pas encore scanné.</p></div>
+    <table style="margin-bottom:10px">
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>VPC source{% if plan.source_vpc_id %} <span class="mono" style="font-weight:400;text-transform:none">({{ plan.source_vpc_id }})</span>{% endif %}</th>
+          <th>VPC cible{% if plan.target_vpc_id %} <span class="mono" style="font-weight:400;text-transform:none">({{ plan.target_vpc_id }})</span>{% endif %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in resources.rows %}
+        <tr>
+          <td>{{ row.label }}</td>
+          <td{% if row.mismatch %} style="color:var(--err);font-weight:600"{% endif %}>{{ row.source if row.source is not none else "—" }}</td>
+          <td{% if row.mismatch %} style="color:var(--err);font-weight:600"{% endif %}>{{ row.target if row.target is not none else "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="hint" style="margin-bottom:10px">Dernière analyse du VPC source : {{ resources.scanned_at or "jamais — rescan automatique toutes les heures, ou clique sur « Rescanner le VPC source »" }}.</p>
+    <p class="hint">La resynchronisation crée, à partir du VPC source (par nom) : les subnets, les security groups et leurs règles, l'internet service, et les tables de routage (routes locales et vers l'internet service — les routes vers un Net peering ou une passerelle VPN ne sont pas répliquées). Les EIP et la NAT Gateway ne sont volontairement pas repris ici : une VM avec EIP la récupère (même région) ou en reçoit une nouvelle (autre région) au moment de la bascule vers le PRA.</p>
   </div>
 </div>
 

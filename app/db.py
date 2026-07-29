@@ -116,6 +116,19 @@ def init_db() -> None:
     )
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS resource_scan_cache (
+            plan_id INTEGER PRIMARY KEY,
+            subnets_count INTEGER,
+            security_groups_count INTEGER,
+            route_tables_count INTEGER,
+            internet_services_count INTEGER,
+            scanned_at TEXT,
+            error TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS jobs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             job_type TEXT NOT NULL,

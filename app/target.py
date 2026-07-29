@@ -40,6 +40,21 @@ def tag_name(resource: dict, fallback: str) -> str:
     return next((t["Value"] for t in resource.get("Tags", []) if t.get("Key") == "Name"), fallback)
 
 
+RESOURCE_COUNT_TYPES = ("subnets", "security_groups", "route_tables", "internet_services")
+
+
+def count_vpc_resources(ak: str, sk: str, region: str, vpc_id: str) -> dict:
+    """Dénombre, par type, les ressources réseau d'un VPC — utilisé pour
+    comparer le VPC source et le VPC cible d'un plan (voir app/resource_scan.py
+    et la page Visualiser). Lève octl.OctlError en cas d'échec d'un appel."""
+    return {
+        "subnets": len([s for s in octl.list_subnets(ak, sk, region) if s.get("NetId") == vpc_id]),
+        "security_groups": len([g for g in octl.list_security_groups(ak, sk, region) if g.get("NetId") == vpc_id]),
+        "route_tables": len([rt for rt in octl.list_route_tables(ak, sk, region) if rt.get("NetId") == vpc_id]),
+        "internet_services": len([i for i in octl.list_internet_services(ak, sk, region) if i.get("NetId") == vpc_id]),
+    }
+
+
 def _is_main_route_table(route_table: dict) -> bool:
     return any(link.get("Main") for link in route_table.get("LinkRouteTables", []))
 

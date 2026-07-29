@@ -37,7 +37,10 @@ def python_bin() -> str:
 def build_cron_lines() -> list[str]:
     conn = get_connection()
     settings = conn.execute("SELECT * FROM settings WHERE id = 1").fetchone()
-    plans = conn.execute("SELECT * FROM plans WHERE active = 1 ORDER BY name").fetchall()
+    active_plans = conn.execute("SELECT * FROM plans WHERE active = 1 ORDER BY name").fetchall()
+    has_source_vpc = conn.execute(
+        "SELECT 1 FROM plans WHERE source_vpc_id IS NOT NULL AND source_vpc_id != '' LIMIT 1"
+    ).fetchone() is not None
     conn.close()
 
     python = python_bin()
@@ -48,12 +51,17 @@ def build_cron_lines() -> list[str]:
             f"{settings['backup_frequency']} {python} {APP_DIR}/scripts/run_backup.py >> {LOG_FILE} 2>&1"
         )
 
-    for plan in plans:
+    for plan in active_plans:
         if plan["snapshot_frequency"]:
             lines.append(
                 f"{plan['snapshot_frequency']} {python} {APP_DIR}/scripts/run_plan.py {plan['id']} "
                 f">> {LOG_FILE} 2>&1"
             )
+
+    # Rescan horaire des ressources du VPC source (tous les plans, actifs ou
+    # non, dès qu'un VPC source est configuré) — voir app/resource_scan.py.
+    if has_source_vpc:
+        lines.append(f"0 * * * * {python} {APP_DIR}/scripts/scan_resources.py >> {LOG_FILE} 2>&1")
 
     return [CRON_PATH, *lines] if lines else []
 
