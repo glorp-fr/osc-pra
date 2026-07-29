@@ -5,14 +5,35 @@
 <div class="card">
   <div class="phdr"><span class="stitle" style="font-size:14px">Plans de reprise</span></div>
   <div class="pbody">
+    {% if not octl_available %}
+    <p class="hint" style="margin-bottom:10px">octl n'est pas installé sur ce serveur — le test de validité des AK/SK est indisponible.</p>
+    {% endif %}
     {% if plans %}
     <table>
-      <thead><tr><th>Nom</th><th>Statut</th></tr></thead>
+      <thead><tr><th>Nom</th><th>Statut</th><th>AK/SK</th></tr></thead>
       <tbody>
         {% for plan in plans %}
+        {% set ak = ak_statuses.get(plan.id) %}
         <tr>
           <td>{{ plan.name }}</td>
           <td><span class="bdg {{ 'actif' if plan.active else 'inactif' }}">{{ "Actif" if plan.active else "Désactivé" }}</span></td>
+          <td>
+            {% if not octl_available %}
+            <span style="color:var(--text-muted)">—</span>
+            {% elif ak is none %}
+            <span style="color:var(--text-muted)">Non configuré</span>
+            {% elif ak.error %}
+            <span class="ak-status error">Erreur : {{ ak.error }}</span>
+            {% elif ak.valid %}
+              {% if ak.days_remaining is not none and ak.days_remaining < ak_warning_days %}
+              <span class="ak-status error">Expire le {{ ak.expiration_date }} ({{ ak.days_remaining }} j restants)</span>
+              {% else %}
+              <span class="ak-status success">Valide{% if ak.expiration_date %} — expire le {{ ak.expiration_date }}{% endif %}</span>
+              {% endif %}
+            {% else %}
+            <span class="ak-status error">Non valide{% if ak.expiration_date %} (expiré le {{ ak.expiration_date }}){% endif %}</span>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -50,7 +71,29 @@
 <div class="card">
   <div class="phdr"><span class="stitle" style="font-size:14px">Alertes</span></div>
   <div class="pbody">
-    <p class="empty">Aucune alerte — le test de validité des AK/SK n'est pas encore implémenté.</p>
+    {% if not octl_available %}
+    <p class="empty">octl n'est pas installé sur ce serveur — impossible de vérifier les AK/SK.</p>
+    {% elif ak_alerts %}
+    <table>
+      <thead><tr><th>Plan</th><th>Alerte</th></tr></thead>
+      <tbody>
+        {% for alert in ak_alerts %}
+        <tr>
+          <td>{{ alert.plan.name }}</td>
+          <td>
+            {% if not alert.status.valid %}
+            <span class="ak-status error">AK/SK non valide{% if alert.status.error %} : {{ alert.status.error }}{% endif %}</span>
+            {% else %}
+            <span class="ak-status error">AK proche de sa fin de validité — expire le {{ alert.status.expiration_date }} ({{ alert.status.days_remaining }} j restants)</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">Aucune alerte.</p>
+    {% endif %}
   </div>
 </div>
 {% endblock %}
