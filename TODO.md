@@ -48,12 +48,9 @@ Chantiers identifiés, à prioriser.
 
 ## Corrections et ajustements UI
 
-- **Erreur sur les security groups au resync** : signalée le 2026-07-29,
-  pas encore reproduite/diagnostiquée précisément — à creuser (concerne
-  probablement `sync_target_network` / `create_security_group_rule` dans
-  `app/target.py` et `app/octl.py`, ajoutés le même jour). Récupérer le
-  message d'erreur exact affiché sur la page Visualiser (bouton "Mettre à
-  jour depuis la source") pour diagnostiquer.
+- ~~Erreur sur les security groups au resync~~ — corrigé le 2026-07-29
+  (FromPortRange=0 mal géré par la forme "tableau" des paramètres octl
+  pour les règles tcp/udp, voir historique git).
 - **Modifier le menu de gauche (zone admin)** : demandé le 2026-07-29,
   sans détail sur le changement attendu — à préciser (quelles entrées,
   quel regroupement, lié à l'ouverture de la gestion des plans aux
