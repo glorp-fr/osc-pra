@@ -2,4 +2,12 @@
 <div class="err-banner">{{ error }}</div>
 {% elif result %}
 <div class="ak-status success">VPC cible créé : {{ result.vpc_id }} ({{ result.ip_range }})</div>
+{% if result.sync_summary %}
+<div class="ak-status success">
+  Subnets : {{ result.sync_summary.subnets_created }} créé(s) sur {{ result.sync_summary.subnets_total }} côté source.
+  Security groups : {{ result.sync_summary.sgs_created }} créé(s) sur {{ result.sync_summary.sgs_total }} côté source.
+</div>
+{% elif result.sync_error %}
+<div class="err-banner">VPC créé, mais la resynchronisation des subnets/security groups a échoué : {{ result.sync_error }}</div>
+{% endif %}
 {% endif %}

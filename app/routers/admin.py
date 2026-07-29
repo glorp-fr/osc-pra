@@ -11,7 +11,7 @@ from app.auth import ROLE_LABELS, ROLES, require_admin
 from app.crypto import decrypt, encrypt
 from app.db import DB_PATH, get_connection
 from app.jobs import last_job
-from app.target import resolve_target_credentials, tag_name
+from app.target import resolve_target_credentials, sync_target_network
 from app.templates_env import templates
 
 router = APIRouter(prefix="/admin")
@@ -853,7 +853,12 @@ def plan_create_target_vpc(request: Request, plan_id: int):
         target_vpc_id = target_vpc.get("NetId") if isinstance(target_vpc, dict) else None
         conn.execute("UPDATE plans SET target_vpc_id = ? WHERE id = ?", (target_vpc_id, plan_id))
         conn.commit()
-        result = {"vpc_id": target_vpc_id, "ip_range": source_vpc["IpRange"]}
+        result = {"vpc_id": target_vpc_id, "ip_range": source_vpc["IpRange"], "sync_summary": None, "sync_error": None}
+
+        try:
+            result["sync_summary"] = sync_target_network(plan, target_ak, target_sk, target_region, target_vpc_id)
+        except octl.OctlError as exc:
+            result["sync_error"] = str(exc)
     except octl.OctlError as exc:
         error = str(exc)
 
@@ -1140,54 +1145,8 @@ def plan_view_resync(request: Request, plan_id: int):
             "admin/_resync_result.html", {"request": request, "error": error, "summary": None}
         )
 
-    source_sk = decrypt(plan["source_sk_encrypted"]) if plan["source_sk_encrypted"] else ""
-
     try:
-        source_subnets = [
-            s for s in octl.list_subnets(plan["source_ak"], source_sk, plan["source_region"])
-            if s.get("NetId") == plan["source_vpc_id"]
-        ]
-        target_subnets = [
-            s for s in octl.list_subnets(target_ak, target_sk, target_region)
-            if s.get("NetId") == plan["target_vpc_id"]
-        ]
-        existing_subnet_names = {tag_name(s, s.get("SubnetId")) for s in target_subnets}
-
-        subnets_created = 0
-        for subnet in source_subnets:
-            name = tag_name(subnet, subnet.get("SubnetId"))
-            if name in existing_subnet_names:
-                continue
-            octl.create_subnet(
-                target_ak, target_sk, target_region, plan["target_vpc_id"],
-                subnet["IpRange"], subnet["SubregionName"], name,
-            )
-            subnets_created += 1
-
-        source_sgs = [
-            g for g in octl.list_security_groups(plan["source_ak"], source_sk, plan["source_region"])
-            if g.get("NetId") == plan["source_vpc_id"] and g.get("SecurityGroupName") != "default"
-        ]
-        target_sgs = [
-            g for g in octl.list_security_groups(target_ak, target_sk, target_region)
-            if g.get("NetId") == plan["target_vpc_id"]
-        ]
-        existing_sg_names = {g.get("SecurityGroupName") for g in target_sgs}
-
-        sgs_created = 0
-        for sg in source_sgs:
-            name = sg.get("SecurityGroupName")
-            if not name or name in existing_sg_names:
-                continue
-            octl.create_security_group(target_ak, target_sk, target_region, plan["target_vpc_id"], name, sg.get("Description", ""))
-            sgs_created += 1
-
-        summary = {
-            "subnets_created": subnets_created,
-            "subnets_total": len(source_subnets),
-            "sgs_created": sgs_created,
-            "sgs_total": len(source_sgs),
-        }
+        summary = sync_target_network(plan, target_ak, target_sk, target_region, plan["target_vpc_id"])
         error = None
     except octl.OctlError as exc:
         summary = None
