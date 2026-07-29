@@ -11,6 +11,7 @@ from app.auth import ROLE_LABELS, ROLES, require_admin
 from app.crypto import decrypt, encrypt
 from app.db import DB_PATH, get_connection
 from app.jobs import last_job
+from app.target import resolve_target_credentials, tag_name
 from app.templates_env import templates
 
 router = APIRouter(prefix="/admin")
@@ -380,26 +381,6 @@ def _resolve_source_sk(source_sk: str, plan_id: str) -> str:
     if plan and plan["source_sk_encrypted"]:
         return decrypt(plan["source_sk_encrypted"])
     return source_sk
-
-
-def _resolve_target_credentials(plan) -> tuple[str, str, str, str | None]:
-    """En 'même région', le compte cible est le compte source ; en 'autre
-    région', ce sont les AK/SK dédiés du plan (même logique que la création
-    du VPC cible)."""
-    if plan["target_type"] == "autre_region":
-        target_ak = plan["target_ak"]
-        target_sk = decrypt(plan["target_sk_encrypted"]) if plan["target_sk_encrypted"] else ""
-        target_region = plan["target_region"]
-        if not (target_ak and target_sk and target_region):
-            return "", "", "", "AK/SK et région du compte cible requis pour ce plan."
-        return target_ak, target_sk, target_region, None
-
-    target_ak = plan["source_ak"]
-    target_sk = decrypt(plan["source_sk_encrypted"]) if plan["source_sk_encrypted"] else ""
-    target_region = plan["source_region"]
-    if not (target_ak and target_sk and target_region):
-        return "", "", "", "AK/SK et région source requis pour ce plan."
-    return target_ak, target_sk, target_region, None
 
 
 def _plan_vm_status(plan) -> tuple[list[dict], str | None]:
@@ -1104,7 +1085,7 @@ def plan_view_scan_target(request: Request, plan_id: int, resource_type: str):
             {"request": request, "items": None, "error": "octl n'est pas installé sur ce serveur."},
         )
 
-    target_ak, target_sk, target_region, error = _resolve_target_credentials(plan)
+    target_ak, target_sk, target_region, error = resolve_target_credentials(plan)
     if error:
         return templates.TemplateResponse(
             "admin/_resource_list.html", {"request": request, "items": None, "error": error}
@@ -1121,10 +1102,6 @@ def plan_view_scan_target(request: Request, plan_id: int, resource_type: str):
     return templates.TemplateResponse(
         "admin/_resource_list.html", {"request": request, "items": items, "error": error}
     )
-
-
-def _tag_name(resource: dict, fallback: str) -> str:
-    return next((t["Value"] for t in resource.get("Tags", []) if t.get("Key") == "Name"), fallback)
 
 
 @router.post("/plans/{plan_id}/visualiser/resync")
@@ -1157,7 +1134,7 @@ def plan_view_resync(request: Request, plan_id: int):
             {"request": request, "error": "octl n'est pas installé sur ce serveur.", "summary": None},
         )
 
-    target_ak, target_sk, target_region, error = _resolve_target_credentials(plan)
+    target_ak, target_sk, target_region, error = resolve_target_credentials(plan)
     if error:
         return templates.TemplateResponse(
             "admin/_resync_result.html", {"request": request, "error": error, "summary": None}
@@ -1174,14 +1151,17 @@ def plan_view_resync(request: Request, plan_id: int):
             s for s in octl.list_subnets(target_ak, target_sk, target_region)
             if s.get("NetId") == plan["target_vpc_id"]
         ]
-        existing_subnet_names = {_tag_name(s, s.get("SubnetId")) for s in target_subnets}
+        existing_subnet_names = {tag_name(s, s.get("SubnetId")) for s in target_subnets}
 
         subnets_created = 0
         for subnet in source_subnets:
-            name = _tag_name(subnet, subnet.get("SubnetId"))
+            name = tag_name(subnet, subnet.get("SubnetId"))
             if name in existing_subnet_names:
                 continue
-            octl.create_subnet(target_ak, target_sk, target_region, plan["target_vpc_id"], subnet["IpRange"], name)
+            octl.create_subnet(
+                target_ak, target_sk, target_region, plan["target_vpc_id"],
+                subnet["IpRange"], subnet["SubregionName"], name,
+            )
             subnets_created += 1
 
         source_sgs = [
