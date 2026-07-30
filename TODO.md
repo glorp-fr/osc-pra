@@ -52,10 +52,19 @@ Chantiers identifiés, à prioriser.
   version + bandeau « mise à jour disponible » (release GitHub) affichés en
   haut à droite de chaque vue. Détails et politique de compatibilité dans
   CLAUDE.MD, section *Versioning et mises à jour*.
-- Reste à faire : créer réellement la branche `dev` sur le dépôt, poser le
-  premier tag `v0.1.0` sur `main`, et rollback testé en conditions réelles
-  (`update.sh <tag antérieur>`) — pas encore fait, seul le mécanisme est en
-  place.
+- ~~Créer réellement la branche `dev`~~ — fait le 2026-07-30, poussée sur
+  origin. ~~Poser un premier tag~~ — fait : `v0.1.1` et `v0.2.0` posés et
+  publiés (release GitHub) sur `main`.
+- Bouton « Mettre à jour maintenant » ajouté le 2026-07-30 (zone admin >
+  Paramètres) — voir CLAUDE.MD, section *Versioning et mises à jour*. Testé
+  en isolant le point qui posait problème (permissions git/systemd-run,
+  voir historique git), **pas encore observé de bout en bout via un vrai
+  clic sur le bouton en conditions réelles** (le dernier test réel a servi
+  à corriger le bug de permissions, pas à valider un update.sh complet
+  réussi) — à surveiller au premier usage réel.
+- Rollback testé en conditions réelles (`update.sh <tag antérieur>`) —
+  toujours pas fait, ni depuis l'UI (le bouton ne propose pas de choisir un
+  tag) ni en SSH.
 - Suivi de version d'`octl` : le setup installe la dernière release au
   moment de l'install, mais rien ne vérifie ensuite si une mise à jour
   d'octl est disponible/nécessaire, ni ne fixe une version minimale

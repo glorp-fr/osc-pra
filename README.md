@@ -124,6 +124,10 @@ Activation PRA réelle (voir [TODO.md](TODO.md)).
   dans les paramètres globaux.
 - **Sauvegarde de la base** vers un bucket S3 (manuelle ou planifiée,
   avec rétention configurable).
+- **Mise à jour depuis l'UI** (Paramètres globaux, admins) : bouton actif
+  dès qu'une release GitHub plus récente est détectée, exécute `update.sh`
+  et journalise chaque étape en direct dans la page (voir CLAUDE.MD,
+  section *Versioning et mises à jour*).
 - **Bascule PRA** (Activation / Test) et **Sandbox** : voir ci-dessus.
 - **Sécurité** (`/admin/securite`, admins) : journal d'audit des
   connexions/déconnexions/échecs de connexion et des actions de
