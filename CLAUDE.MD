@@ -2,6 +2,10 @@
 
 Projet d'application permettant de créer et gérer des Plans de Reprise d'Activité (PRA) sur Outscale.
 
+Nom et logo affichés dans l'application (header, page de connexion, titre) :
+**Outscale Net Replicator** (`app/static/assets/logo.png`) — le nom du
+projet/dépôt reste `osc-pra`.
+
 Dépôt du code : https://github.com/glorp-fr/osc-pra
 
 ## Fonctionnement attendu
@@ -27,9 +31,18 @@ Dépôt du code : https://github.com/glorp-fr/osc-pra
 ### Même région
 
 1. Snapshot des disques de la VM source
-2. Création d'une VM avec la même configuration dans le VPC de PRA
+2. Création d'une VM avec la même configuration dans le VPC de PRA (tous les
+   tags de la VM source repris sur la VM cible, pas seulement `Name`, remis
+   en phase à chaque cycle)
 3. Restauration des disques depuis les snapshots
 4. Attachement des disques dans le même ordre que sur la VM source
+
+Avant chaque cycle, le VPC de PRA peut être resynchronisé automatiquement
+depuis le VPC source (objets manquants recréés à l'identique : subnets,
+security groups et leurs règles, internet service, tables de routage — tags
+source repris) si l'option *Mise à jour du VPC cible automatique* du plan
+est activée (par défaut) ; sinon la resynchronisation reste disponible
+manuellement depuis la page Visualiser du plan.
 
 ### Cross région (autre AZ)
 
@@ -100,6 +113,9 @@ Les commandes OCTL sont schedulées directement via cron.
     - AK/SK S3
     - Endpoint S3 défini selon la région choisie
     - Nombre de snapshots à conserver côté cible (à demander à l'utilisateur)
+- Mise à jour du VPC cible automatique (case à cocher, activée par défaut) :
+  reconstruit les objets manquants sur le VPC cible à chaque synchronisation
+  planifiée (voir *Mécanisme de réplication* ci-dessus)
 - Liste de VMs, issue du scan du compte, case à cocher pour les sélectionner
   - Si une VM précédemment cochée n'existe plus : alerte sur le job et surlignage en rouge dans la liste de VMs
 - Fréquence de snapshot
@@ -122,6 +138,9 @@ Les commandes OCTL sont schedulées directement via cron.
 ### Zone Monitoring
 
 - Visualisation des jobs et de leur état
+- Dashboard et liste des plans : date/heure et statut de la dernière
+  exécution de chaque plan (Réussi / En cours / Erreur — en erreur dès
+  qu'une VM du dernier cycle a échoué)
 - Alerte sur les jobs avec une AK proche de sa fin de validité
 
 ## Versioning et mises à jour

@@ -5,6 +5,9 @@ Application web de gestion de Plans de Reprise d'Activité (PRA) sur
 (snapshots planifiés, VM cible tenue à jour) et centralise le suivi de ces
 opérations.
 
+Nom/logo affichés dans l'application : **Outscale Net Replicator** — nom du
+projet et du dépôt inchangés (`osc-pra`).
+
 Dépôt : https://github.com/glorp-fr/osc-pra
 Spécification fonctionnelle détaillée : [CLAUDE.MD](CLAUDE.MD)
 Suivi des chantiers en cours : [TODO.md](TODO.md)
@@ -46,13 +49,21 @@ explicitement plutôt que de tenter une restauration.
 
 Le VPC cible (« VPC de PRA ») doit être créé une première fois depuis la
 page *Modifier* d'un plan. Pour que la création de VM cible fonctionne
-(étape 2), le VPC cible a aussi besoin des subnets et security groups
-correspondants côté source. La page **Visualiser** d'un plan permet de
-scanner les ressources déjà présentes côté cible et de les resynchroniser
-(bouton *Mettre à jour depuis la source*) : les subnets et security
-groups manquants (identifiés par leur tag `Name`) sont recréés à
-l'identique côté cible. Les règles de security group et les tables de
-routage ne sont pas répliquées.
+(étape 2), le VPC cible a aussi besoin des subnets, security groups,
+internet service et tables de routage correspondants côté source
+(`app.target.sync_target_network`) : les objets manquants côté cible
+(identifiés par leur tag `Name`) sont recréés à l'identique, avec les
+règles de security group et les routes (hors routes vers un Net peering
+ou une passerelle VPN, non répliquées — voir *Connu, non planifié* dans
+[TODO.md](TODO.md)). Tous les tags de la ressource source sont repris sur
+son équivalent cible (pas seulement `Name`), remis en phase à chaque
+cycle.
+
+Cette resynchronisation se déclenche de deux façons : automatiquement à
+chaque exécution planifiée du plan si l'option **Mise à jour du VPC cible
+automatique** est cochée sur le plan (cochée par défaut — page
+*Modifier*), ou manuellement depuis la page **Visualiser** (bouton *Mettre
+à jour depuis la source*).
 
 ## Fonctionnalités
 
@@ -60,12 +71,15 @@ routage ne sont pas répliquées.
   seule).
 - **Gestion des plans de reprise** : AK/SK source (et cible, en
   cross-région), sélection du VPC et des VMs par scan du compte,
-  fréquence de snapshot, nombre de snapshots à conserver, activation/
-  désactivation, suppression.
+  fréquence de snapshot, nombre de snapshots à conserver, mise à jour du
+  VPC cible automatique (activée par défaut), activation/désactivation,
+  suppression.
 - **Test de validité des AK/SK** (via `ReadAccessKeys`) à la saisie, avec
   date de fin de validité affichée.
-- **Suivi** (`/suivi`) : liste des plans avec statut AK/SK (en rouge si
-  expiration à moins de 7 jours ou clé invalide), historique des jobs,
+- **Suivi** (`/suivi`) et **liste des plans** (`/admin/plans`) : statut
+  AK/SK (en rouge si expiration à moins de 7 jours ou clé invalide),
+  date/heure et statut de la dernière exécution de chaque plan (en erreur
+  si au moins une VM du dernier cycle a échoué), historique des jobs,
   alertes.
 - **Visualisation d'un plan** (`/admin/plans/{id}/visualiser`) :
   ressources réseau côté cible (VPC/subnets/security groups/route
@@ -81,9 +95,8 @@ routage ne sont pas répliquées.
   avec rétention configurable).
 
 Ce que l'application ne fait *pas encore* : réplication cross-région,
-réplication des règles de security group et des tables de routage,
-reporting/alerting par email, gestion des mises à jour. Détail dans
-[TODO.md](TODO.md).
+reprise de l'IP privée de la VM source, bascule (failover) automatisée,
+reporting/alerting par email. Détail dans [TODO.md](TODO.md).
 
 ## Stack technique
 
@@ -151,18 +164,22 @@ app/
   auth.py            Authentification / rôles
   octl.py            Wrapper autour du CLI octl (toutes les actions API Outscale)
   restore.py         Orchestration de la restauration des BSU sur la VM cible
-  target.py          Résolution des identifiants du compte cible (partagé)
+  target.py          Résolution des identifiants du compte cible et
+                      resynchronisation du réseau cible (subnets, security
+                      groups + règles, internet service, tables de routage)
   cron.py            Génération/synchronisation du crontab utilisateur
-  jobs.py            Historique des jobs (table `jobs`)
+  jobs.py            Historique des jobs (table `jobs`) et statuts agrégés par plan
   crypto.py          Chiffrement des SK stockés en base (Fernet)
   secret.py          Clé de signature de session
   scheduling.py      Fréquences de planification (cron expressions)
+  version.py         Version courante (fichier VERSION) et détection de mise à jour
+  templates_env.py   Instance Jinja2Templates + globals (asset_version, app_version...)
   routers/
     auth.py          Connexion / déconnexion
     suivi.py          Page de suivi (plans, jobs, alertes AK/SK)
     admin.py          Zone admin (plans, comptes, paramètres, visualisation)
   templates/         Templates Jinja2 (dont admin/ pour la zone admin)
-  static/            CSS, assets
+  static/            CSS, assets (dont le logo, static/assets/logo.png)
 
 scripts/
   run_plan.py        Job cron : snapshot + restauration pour un plan
@@ -173,6 +190,9 @@ deploy/
   osc-pra.service.template   Unit systemd (templaté par setup.sh)
 
 data/                Base SQLite, clés de chiffrement, logs cron (non versionné)
+
+VERSION               Version SemVer courante (voir CLAUDE.MD, Versioning et mises à jour)
+update.sh             Met à jour une instance déployée vers un tag vX.Y.Z
 ```
 
 ## Sécurité
