@@ -95,6 +95,13 @@ Les commandes OCTL sont schedulées directement via cron.
 
 - Création de compte
 
+#### 2 - Sécurité
+
+- Journal d'audit : connexions, déconnexions et échecs de connexion des
+  utilisateurs, ainsi que les actions de modification effectuées durant
+  leur session (comptes, plans, paramètres) — date/heure, utilisateur,
+  IP, détail
+
 ### Zone Opérateur
 
 #### 1 - Création de Plan de reprise

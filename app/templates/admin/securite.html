@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content_class %} wide{% endblock %}
+{% block help_title %}Sécurité{% endblock %}
+{% block help %}
+<p>Journal d'audit : connexions/déconnexions des utilisateurs et actions de modification effectuées durant leur session (comptes, plans, paramètres). Les 200 événements les plus récents sont affichés, du plus récent au plus ancien.</p>
+<p>Un <strong>Échec de connexion</strong> correspond à un identifiant ou un mot de passe invalide — plusieurs échecs répétés pour un même utilisateur ou une même IP peuvent indiquer une tentative d'intrusion.</p>
+{% endblock %}
+{% block content %}
+{% set action_labels = {
+  "login": "Connexion",
+  "login_failed": "Échec de connexion",
+  "logout": "Déconnexion",
+  "compte_cree": "Compte créé",
+  "compte_role_modifie": "Rôle modifié",
+  "compte_mdp_reinitialise": "Mot de passe réinitialisé",
+  "compte_supprime": "Compte supprimé",
+  "plan_cree": "Plan créé",
+  "plan_modifie": "Plan modifié",
+  "plan_active": "Plan activé",
+  "plan_desactive": "Plan désactivé",
+  "plan_lance_manuellement": "Plan lancé manuellement",
+  "plan_supprime": "Plan supprimé",
+  "plan_vpc_cible_cree": "VPC cible créé",
+  "plan_resync_manuel": "VPC cible resynchronisé",
+  "parametres_modifies": "Paramètres modifiés",
+  "sauvegarde_lancee_manuellement": "Sauvegarde lancée",
+  "crontab_resynchronise": "Crontab resynchronisé",
+} %}
+<div class="stitle" style="margin-bottom:16px">Sécurité</div>
+
+<div class="card">
+  <div class="phdr"><span class="stitle" style="font-size:14px">Journal d'audit</span></div>
+  <div class="pbody">
+    {% if events %}
+    <table>
+      <thead><tr><th>Date/heure</th><th>Utilisateur</th><th>Action</th><th>Détail</th><th>IP</th></tr></thead>
+      <tbody>
+        {% for event in events %}
+        <tr>
+          <td class="mono" style="font-size:11px;color:var(--text-muted)">{{ event.created_at }}</td>
+          <td>{{ event.username }}</td>
+          <td>
+            {% if event.action == "login_failed" %}
+            <span class="bdg error">{{ action_labels.get(event.action, event.action) }}</span>
+            {% else %}
+            {{ action_labels.get(event.action, event.action) }}
+            {% endif %}
+          </td>
+          <td style="color:var(--text-dim)">{{ event.detail or "" }}</td>
+          <td class="mono" style="font-size:12px;color:var(--text-muted)">{{ event.ip_address or "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">Aucun événement enregistré pour le moment.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

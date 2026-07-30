@@ -7,6 +7,7 @@ from fastapi.responses import RedirectResponse
 from passlib.hash import bcrypt
 
 from app import cron, octl, scheduling
+from app.audit import log_event, recent_events
 from app.auth import ROLE_LABELS, ROLES, require_admin, require_login, require_operator
 from app.crypto import decrypt, encrypt
 from app.db import DB_PATH, get_connection
@@ -124,6 +125,7 @@ def parametres_submit(
     conn.commit()
     settings = conn.execute("SELECT * FROM settings WHERE id = 1").fetchone()
     conn.close()
+    log_event(request, user["username"], "parametres_modifies")
 
     backup_freq = scheduling.parse_cron(settings["backup_frequency"] if settings else None)
     cron_error = _sync_crontab_or_error()
@@ -152,6 +154,7 @@ def backup_run_now(request: Request):
         return user
 
     subprocess.Popen([cron.python_bin(), str(cron.APP_DIR / "scripts" / "run_backup.py")])
+    log_event(request, user["username"], "sauvegarde_lancee_manuellement")
     return RedirectResponse(
         "/admin/parametres?message=Sauvegarde+lanc%C3%A9e+en+arri%C3%A8re-plan", status_code=303
     )
@@ -164,9 +167,24 @@ def planification_resync(request: Request):
         return user
 
     error = _sync_crontab_or_error()
+    log_event(request, user["username"], "crontab_resynchronise")
     if error:
         return RedirectResponse(f"/admin/parametres?cron_error={quote(error)}", status_code=303)
     return RedirectResponse("/admin/parametres?message=Crontab+resynchronis%C3%A9", status_code=303)
+
+
+# --- Sécurité (journal d'audit) --------------------------------------------
+
+@router.get("/securite")
+def securite(request: Request):
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    return templates.TemplateResponse(
+        "admin/securite.html",
+        {"request": request, "user": user, "events": recent_events()},
+    )
 
 
 # --- Gestion des comptes ---------------------------------------------------
@@ -230,6 +248,7 @@ def comptes_create(
             "/admin/comptes?error=Ce+nom+d%27utilisateur+existe+déjà", status_code=303
         )
     conn.close()
+    log_event(request, user["username"], "compte_cree", f"{username} ({ROLE_LABELS.get(role, role)})")
     return RedirectResponse("/admin/comptes", status_code=303)
 
 
@@ -261,6 +280,10 @@ def comptes_update_role(request: Request, account_id: int, role: str = Form(...)
     conn.execute("UPDATE users SET role = ? WHERE id = ?", (role, account_id))
     conn.commit()
     conn.close()
+    log_event(
+        request, user["username"], "compte_role_modifie",
+        f"{target['username']} : {ROLE_LABELS.get(target['role'], target['role'])} -> {ROLE_LABELS.get(role, role)}",
+    )
     return RedirectResponse("/admin/comptes", status_code=303)
 
 
@@ -313,6 +336,7 @@ def compte_reset_password_submit(
     conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (bcrypt.hash(password), account_id))
     conn.commit()
     conn.close()
+    log_event(request, user["username"], "compte_mdp_reinitialise", account["username"])
     return RedirectResponse("/admin/comptes?message=Mot+de+passe+réinitialisé", status_code=303)
 
 
@@ -365,6 +389,7 @@ def compte_delete(request: Request, account_id: int):
     conn.execute("DELETE FROM users WHERE id = ?", (account_id,))
     conn.commit()
     conn.close()
+    log_event(request, user["username"], "compte_supprime", target["username"])
     return RedirectResponse("/admin/comptes", status_code=303)
 
 
@@ -594,6 +619,7 @@ async def plan_new_submit(
             status_code=400,
         )
     conn.close()
+    log_event(request, user["username"], "plan_cree", name)
 
     error = _sync_crontab_or_error()
     if error:
@@ -708,6 +734,7 @@ async def plan_edit_submit(
             status_code=400,
         )
     conn.close()
+    log_event(request, user["username"], "plan_modifie", name)
 
     error = _sync_crontab_or_error()
     if error:
@@ -975,6 +1002,7 @@ def plan_create_target_vpc(request: Request, plan_id: int, delete_old: str = For
         target_vpc_id = target_vpc.get("NetId") if isinstance(target_vpc, dict) else None
         conn.execute("UPDATE plans SET target_vpc_id = ? WHERE id = ?", (target_vpc_id, plan_id))
         conn.commit()
+        log_event(request, user["username"], "plan_vpc_cible_cree", f"{plan['name']} : {target_vpc_id}")
         result = {
             "vpc_id": target_vpc_id, "ip_range": source_vpc["IpRange"], "sync_summary": None, "sync_error": None,
             "old_vpc_id": old_vpc_id, "old_vpc_deletion": old_vpc_deletion,
@@ -1000,9 +1028,12 @@ def plan_disable(request: Request, plan_id: int):
         return user
 
     conn = get_connection()
+    plan = conn.execute("SELECT name FROM plans WHERE id = ?", (plan_id,)).fetchone()
     conn.execute("UPDATE plans SET active = 0 WHERE id = ?", (plan_id,))
     conn.commit()
     conn.close()
+    if plan:
+        log_event(request, user["username"], "plan_desactive", plan["name"])
 
     error = _sync_crontab_or_error()
     if error:
@@ -1017,9 +1048,12 @@ def plan_enable(request: Request, plan_id: int):
         return user
 
     conn = get_connection()
+    plan = conn.execute("SELECT name FROM plans WHERE id = ?", (plan_id,)).fetchone()
     conn.execute("UPDATE plans SET active = 1 WHERE id = ?", (plan_id,))
     conn.commit()
     conn.close()
+    if plan:
+        log_event(request, user["username"], "plan_active", plan["name"])
 
     error = _sync_crontab_or_error()
     if error:
@@ -1034,6 +1068,7 @@ def plan_run_now(request: Request, plan_id: int):
         return user
 
     subprocess.Popen([cron.python_bin(), str(cron.APP_DIR / "scripts" / "run_plan.py"), str(plan_id)])
+    log_event(request, user["username"], "plan_lance_manuellement", f"plan_id={plan_id}")
     return RedirectResponse(f"/admin/plans/{plan_id}/visualiser", status_code=303)
 
 
@@ -1074,9 +1109,12 @@ def plan_delete(request: Request, plan_id: int):
         return user
 
     conn = get_connection()
+    plan = conn.execute("SELECT name FROM plans WHERE id = ?", (plan_id,)).fetchone()
     conn.execute("DELETE FROM plans WHERE id = ?", (plan_id,))
     conn.commit()
     conn.close()
+    if plan:
+        log_event(request, user["username"], "plan_supprime", plan["name"])
 
     error = _sync_crontab_or_error()
     if error:
@@ -1397,6 +1435,7 @@ def plan_view_resync(request: Request, plan_id: int):
     try:
         summary = sync_target_network(plan, target_ak, target_sk, target_region, plan["target_vpc_id"])
         error = None
+        log_event(request, user["username"], "plan_resync_manuel", plan["name"])
     except octl.OctlError as exc:
         summary = None
         error = str(exc)

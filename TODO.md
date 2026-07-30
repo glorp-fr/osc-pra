@@ -20,15 +20,20 @@ Chantiers identifiés, à prioriser.
 - Aujourd'hui : logs applicatifs uniquement via `journalctl -u osc-pra`
   (service systemd) et `data/cron.log` (stdout/stderr des jobs cron,
   peu utilisé car les erreurs sont surtout stockées dans la table
-  `jobs`). Pas de vue centralisée dans l'UI.
-- Définir ce qu'on veut tracer en plus de l'historique des jobs déjà en
-  base : appels octl (succès/échec, durée), connexions/actions admin
-  (audit trail), erreurs applicatives.
+  `jobs`). Pas de vue centralisée dans l'UI pour ces deux-là.
+- ~~Connexions/actions admin (audit trail)~~ — fait le 2026-07-30 :
+  table `audit_log` (`app/db.py`), écrite par `app/audit.py::log_event`,
+  consultée dans la zone admin > **Sécurité** (`/admin/securite`,
+  réservée aux admins). Trace les connexions/déconnexions/échecs de
+  connexion et les actions de modification (comptes, plans, paramètres,
+  resync manuel, lancement manuel d'un plan, sauvegarde manuelle,
+  resync du crontab) avec utilisateur, IP, date/heure et détail. Reste
+  à tracer : appels octl (succès/échec, durée), erreurs applicatives.
 - Rotation et rétention des logs (`data/cron.log` n'est aujourd'hui
-  jamais purgé).
+  jamais purgé ; `audit_log` non plus — pas de purge/rétention définie).
 - Éventuellement : une page « Logs » dans la zone admin, avec filtre par
   plan/type/statut (au-delà de ce que `/suivi` affiche déjà pour les
-  jobs).
+  jobs, et de ce que `/admin/securite` affiche pour l'audit).
 
 ## Gestion des mises à jour
 

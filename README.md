@@ -93,6 +93,10 @@ automatique** est cochée sur le plan (cochée par défaut — page
   dans les paramètres globaux.
 - **Sauvegarde de la base** vers un bucket S3 (manuelle ou planifiée,
   avec rétention configurable).
+- **Sécurité** (`/admin/securite`, admins) : journal d'audit des
+  connexions/déconnexions/échecs de connexion et des actions de
+  modification (comptes, plans, paramètres) — utilisateur, IP, date/heure,
+  détail.
 
 Ce que l'application ne fait *pas encore* : réplication cross-région,
 reprise de l'IP privée de la VM source, bascule (failover) automatisée,
@@ -162,6 +166,7 @@ app/
   main.py            Point d'entrée FastAPI, montage des routers
   db.py              Schéma SQLite + migrations légères (ALTER TABLE)
   auth.py            Authentification / rôles
+  audit.py           Journal d'audit (connexions, actions de modification — table `audit_log`)
   octl.py            Wrapper autour du CLI octl (toutes les actions API Outscale)
   restore.py         Orchestration de la restauration des BSU sur la VM cible
   target.py          Résolution des identifiants du compte cible et
