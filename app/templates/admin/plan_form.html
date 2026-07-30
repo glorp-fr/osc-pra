@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% import "_macros.html" as macros %}
+{% block content_class %} wide{% endblock %}
 {% block content %}
 <div class="stitle" style="margin-bottom:16px">
   {{ "Modifier le plan « " ~ plan.name ~ " »" if plan else "Nouveau plan de reprise" }}
@@ -10,14 +11,14 @@
 </div>
 {% if error %}<div class="err-banner" style="margin-bottom:16px">{{ error }}</div>{% endif %}
 
-<form method="post" action="{{ '/admin/plans/' ~ plan.id ~ '/modifier' if plan else '/admin/plans/nouveau' }}">
+<form method="post" action="{{ '/admin/plans/' ~ plan.id ~ '/modifier' if plan else '/admin/plans/nouveau' }}" class="form-3col">
   <input type="hidden" name="plan_id" value="{{ plan.id if plan else '' }}">
-  <fieldset>
+  <fieldset style="grid-column:1/-1">
     <legend>Général</legend>
     <label>Nom du plan <input type="text" name="name" required value="{{ plan.name if plan else '' }}"></label>
   </fieldset>
 
-  <fieldset>
+  <fieldset style="grid-column:1">
     <legend>AK/SK source</legend>
     {{ macros.region_field('source_region', plan.source_region if plan else '', 'Région source') }}
     <label>AK <input type="text" name="source_ak" value="{{ plan.source_ak if plan else '' }}"></label>
@@ -27,7 +28,7 @@
     <div id="ak-status"></div>
   </fieldset>
 
-  <fieldset>
+  <fieldset style="grid-column:2">
     <legend>Cible de réplication</legend>
     <label>
       <select name="target_type" id="target_type" onchange="document.getElementById('cross-region-fields').style.display = this.value === 'autre_region' ? 'flex' : 'none'">
@@ -54,7 +55,7 @@
     </div>
   </fieldset>
 
-  <fieldset>
+  <fieldset style="grid-column:1">
     <legend>VPC source</legend>
     {% if plan and plan.source_vpc_id %}
     <p class="hint">VPC actuellement sélectionné : {{ plan.source_vpc_id }}</p>
@@ -68,7 +69,7 @@
   </fieldset>
 
   {% if plan %}
-  <fieldset>
+  <fieldset style="grid-column:2">
     <legend>VPC cible</legend>
     {% if plan.target_vpc_id %}
     <p class="hint">VPC cible déjà créé : {{ plan.target_vpc_id }}</p>
@@ -90,7 +91,7 @@
   </fieldset>
   {% endif %}
 
-  <fieldset>
+  <fieldset style="grid-column:3">
     <legend>VMs à répliquer</legend>
     <input type="hidden" name="existing_selected_vms" value='{{ existing_vm_ids | tojson }}'>
     <input type="hidden" name="existing_vm_image_overrides" value='{{ existing_vm_image_overrides | tojson }}'>
@@ -101,8 +102,8 @@
     <div id="vm-list"><p class="hint">Renseigne l'AK, le SK et la région source, sélectionne un VPC source ci-dessus, puis clique sur « Scanner les VMs ».</p></div>
   </fieldset>
 
-  <fieldset>
-    <legend>Snapshots côté production</legend>
+  <fieldset style="grid-column:1/-1">
+    <legend>Gestion des snapshots</legend>
     <div class="lbl">Fréquence de snapshot</div>
     {{ macros.frequency_picker('snapshot', snapshot_freq) }}
     <label>Snapshots à conserver <input type="number" min="1" name="source_retain_count" value="{{ plan.source_retain_count if plan else 7 }}"></label>
