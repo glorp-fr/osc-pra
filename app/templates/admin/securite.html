@@ -2,7 +2,7 @@
 {% block content_class %} wide{% endblock %}
 {% block help_title %}Sécurité{% endblock %}
 {% block help %}
-<p>Journal d'audit : connexions/déconnexions des utilisateurs et actions de modification effectuées durant leur session (comptes, plans, paramètres). Les 200 événements les plus récents sont affichés, du plus récent au plus ancien.</p>
+<p>Journal d'audit : connexions/déconnexions des utilisateurs et actions de modification effectuées durant leur session (comptes, plans, paramètres, bascule PRA, sandbox). Les 200 événements les plus récents sont affichés, du plus récent au plus ancien.</p>
 <p>Un <strong>Échec de connexion</strong> correspond à un identifiant ou un mot de passe invalide — plusieurs échecs répétés pour un même utilisateur ou une même IP peuvent indiquer une tentative d'intrusion.</p>
 {% endblock %}
 {% block content %}
@@ -25,6 +25,13 @@
   "parametres_modifies": "Paramètres modifiés",
   "sauvegarde_lancee_manuellement": "Sauvegarde lancée",
   "crontab_resynchronise": "Crontab resynchronisé",
+  "bascule_activation_lancee": "Activation PRA lancée",
+  "bascule_test_lancee": "Test de PRA lancé",
+  "bascule_test_termine": "Test de PRA terminé",
+  "sandbox_cree": "Sandbox créé",
+  "sandbox_demarre": "Sandbox démarré",
+  "sandbox_arrete": "Sandbox arrêté",
+  "sandbox_supprime": "Sandbox supprimé",
 } %}
 <div class="stitle" style="margin-bottom:16px">Sécurité</div>
 
@@ -42,6 +49,8 @@
           <td>
             {% if event.action == "login_failed" %}
             <span class="bdg error">{{ action_labels.get(event.action, event.action) }}</span>
+            {% elif event.action == "bascule_activation_lancee" %}
+            <span class="bdg bascule">{{ action_labels.get(event.action, event.action) }}</span>
             {% else %}
             {{ action_labels.get(event.action, event.action) }}
             {% endif %}

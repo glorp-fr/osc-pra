@@ -32,10 +32,10 @@ liste les VMs à répliquer. Selon la fréquence configurée, un job planifié
    (`DeviceName`) que sur la VM source.
 
 La VM cible reste **à l'arrêt** entre deux cycles (réplique froide) : elle
-n'est démarrée que manuellement, lors d'un vrai basculement. Le mapping
-VM source → VM cible est mémorisé en base (table `vm_targets`) pour que
-les cycles suivants réutilisent la même VM cible plutôt que d'en recréer
-une.
+n'est démarrée que manuellement, via une Activation ou un Test de PRA (voir
+*Bascule PRA* ci-dessous). Le mapping VM source → VM cible est mémorisé en
+base (table `vm_targets`) pour que les cycles suivants réutilisent la même
+VM cible plutôt que d'en recréer une.
 
 ### Cible dans une autre région (cross-région)
 
@@ -65,6 +65,37 @@ automatique** est cochée sur le plan (cochée par défaut — page
 *Modifier*), ou manuellement depuis la page **Visualiser** (bouton *Mettre
 à jour depuis la source*).
 
+### Bascule PRA (Activation / Test) et Sandbox
+
+Depuis la page **Visualiser** d'un plan (boutons réservés aux admins) :
+
+- **Activation PRA** : bascule réelle et irréversible. Démarre les VM
+  cible déjà répliquées, dans l'ordre configuré par VM (*Ordre de
+  démarrage à la bascule*, page *Modifier*), rattache l'EIP de production
+  de chaque VM source à sa VM cible, et reconstruit la NAT Gateway cible
+  avec l'ancienne IP publique — ce qui nécessite de supprimer la NAT
+  Gateway source pour récupérer son EIP (l'API Outscale ne permet pas de
+  changer l'EIP d'une NAT Gateway existante) ; en cas d'échec, une EIP
+  neuve est allouée à la place et affichée en évidence sur la page du
+  plan. Désactive le plan à la fin (sync automatique arrêtée).
+- **Test de PRA** : même mécanisme, mais avec des EIP et une NAT Gateway
+  neuves — aucune modification côté source. Le plan passe en statut *Test
+  PRA en cours* (sync suspendue) jusqu'à l'action *Terminer le test*
+  (démonte les EIP/NAT de test, stoppe les VM cible, reprend la sync).
+- **Sandbox** (menu dédié `/admin/sandbox`) : clone un VPC indépendant du
+  VPC de PRA persistant du plan et le construit comme un Test de PRA (VM
+  restaurées depuis les derniers snapshots disponibles) — pour
+  expérimenter sans jamais toucher au VPC de PRA officiel. Plusieurs
+  sandbox peuvent coexister ; actions démarrer/arrêter (VPC/EIP/NAT
+  conservés à l'arrêt) et supprimer (avec confirmation, démonte tout).
+
+Implémentation : `app/failover.py` (ordre de démarrage, EIP, NAT Gateway),
+`scripts/run_bascule.py`/`end_test.py`/`run_sandbox.py` (orchestration en
+arrière-plan). **Les appels EIP/NAT (`CreatePublicIp`, `LinkPublicIp`,
+`CreateNatService`...) sont neufs et n'ont pas encore été exécutés contre
+un compte Outscale réel** — à valider via un Test de PRA avant toute
+Activation PRA réelle (voir [TODO.md](TODO.md)).
+
 ## Fonctionnalités
 
 - **Authentification locale** avec rôles (admin / opérateur / lecture
@@ -93,14 +124,16 @@ automatique** est cochée sur le plan (cochée par défaut — page
   dans les paramètres globaux.
 - **Sauvegarde de la base** vers un bucket S3 (manuelle ou planifiée,
   avec rétention configurable).
+- **Bascule PRA** (Activation / Test) et **Sandbox** : voir ci-dessus.
 - **Sécurité** (`/admin/securite`, admins) : journal d'audit des
   connexions/déconnexions/échecs de connexion et des actions de
-  modification (comptes, plans, paramètres) — utilisateur, IP, date/heure,
-  détail.
+  modification (comptes, plans, paramètres, bascule PRA, sandbox) —
+  utilisateur, IP, date/heure, détail.
 
 Ce que l'application ne fait *pas encore* : réplication cross-région,
-reprise de l'IP privée de la VM source, bascule (failover) automatisée,
-reporting/alerting par email. Détail dans [TODO.md](TODO.md).
+reprise de l'IP privée de la VM source à la bascule, déclenchement
+automatique d'une bascule sur panne détectée (action manuelle
+uniquement), reporting/alerting par email. Détail dans [TODO.md](TODO.md).
 
 ## Stack technique
 
@@ -169,9 +202,11 @@ app/
   audit.py           Journal d'audit (connexions, actions de modification — table `audit_log`)
   octl.py            Wrapper autour du CLI octl (toutes les actions API Outscale)
   restore.py         Orchestration de la restauration des BSU sur la VM cible
-  target.py          Résolution des identifiants du compte cible et
+  target.py          Résolution des identifiants du compte cible,
                       resynchronisation du réseau cible (subnets, security
                       groups + règles, internet service, tables de routage)
+                      et suppression best-effort d'un VPC cible/sandbox
+  failover.py         Bascule PRA : ordre de démarrage des VM, EIP, NAT Gateway
   cron.py            Génération/synchronisation du crontab utilisateur
   jobs.py            Historique des jobs (table `jobs`) et statuts agrégés par plan
   crypto.py          Chiffrement des SK stockés en base (Fernet)
@@ -189,6 +224,9 @@ app/
 scripts/
   run_plan.py        Job cron : snapshot + restauration pour un plan
   run_backup.py       Job cron : sauvegarde de la base vers S3
+  run_bascule.py     Activation PRA / Test de PRA (lancé en arrière-plan)
+  end_test.py        Termine un Test de PRA (démonte EIP/NAT de test)
+  run_sandbox.py     Cycle de vie d'un sandbox (create/start/stop/delete)
   create_admin.py    Création du compte admin (setup initial)
 
 deploy/

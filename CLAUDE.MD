@@ -59,6 +59,44 @@ Chaque VM d'un plan est traitée dans un job séparé, pour permettre un suivi i
 
 Les commandes OCTL sont schedulées directement via cron.
 
+## Bascule PRA
+
+Trois façons de « faire vivre » le VPC de PRA au-delà de la réplique
+froide maintenue par la sync (voir *Mécanisme de réplication*), depuis la
+page Visualiser d'un plan (réservées aux admins pour Activation/Test) :
+
+- **Activation PRA** : bascule réelle et irréversible. Démarre les VM
+  cible déjà répliquées dans l'ordre configuré sur le plan (« Ordre de
+  démarrage à la bascule », par VM, page Modifier), rattache l'EIP de
+  production de chaque VM source à sa VM cible (`LinkPublicIp` avec
+  ré-attachement direct, pas besoin de la détacher côté source au
+  préalable), et reconstruit la NAT Gateway côté cible avec l'ancienne IP
+  publique — ce qui nécessite de supprimer la NAT Gateway source pour
+  libérer son EIP ; si la recréation échoue, une EIP neuve est allouée à
+  la place et affichée bien en évidence sur la page du plan. Le plan est
+  désactivé automatiquement à la fin (source présumée hors service).
+- **Test de PRA** : même mécanique de démarrage, mais avec des EIP et une
+  NAT Gateway neuves, jamais de modification côté source. Le plan passe en
+  statut « Test PRA en cours » (badge dédié, sync planifiée suspendue) et
+  se termine par une action explicite (« Terminer le test ») qui démonte
+  les EIP/NAT de test, stoppe les VM cible et reprend la sync normale.
+- **Sandbox** : clone un VPC entier, indépendant du VPC de PRA persistant
+  du plan, et le construit comme un Test de PRA (VM restaurées depuis les
+  derniers snapshots disponibles, démarrées, EIP/NAT neuves) — pour
+  expérimenter sans jamais toucher au VPC de PRA officiel tenu à jour par
+  la sync. Plusieurs sandbox peuvent coexister, y compris sur un même
+  plan ; gérés depuis le menu **Sandbox** (liste tous plans confondus,
+  actions démarrer/arrêter — VPC/EIP/NAT conservés à l'arrêt — et
+  supprimer avec confirmation).
+
+**Statut expérimental des appels EIP/NAT Gateway** : `CreatePublicIp`,
+`LinkPublicIp`, `UnlinkPublicIp`, `DeletePublicIp`, `CreateNatService`,
+`DeleteNatService` (`app/octl.py`) sont neufs et n'ont jamais été exécutés
+contre un compte Outscale réel par ce code — syntaxe confirmée via `octl
+iaas api <Action> --help` uniquement. À valider via un Test de PRA avant
+toute Activation PRA réelle sur un plan de production (voir TODO.md,
+section *Bascule PRA et Sandbox*).
+
 ## Stack technique
 
 - Backend : Python (FastAPI)
@@ -125,6 +163,7 @@ Les commandes OCTL sont schedulées directement via cron.
   planifiée (voir *Mécanisme de réplication* ci-dessus)
 - Liste de VMs, issue du scan du compte, case à cocher pour les sélectionner
   - Si une VM précédemment cochée n'existe plus : alerte sur le job et surlignage en rouge dans la liste de VMs
+  - Ordre de démarrage à la bascule (optionnel, par VM) — voir *Bascule PRA*
 - Fréquence de snapshot
 - Nombre de snapshots à conserver sur la production
 - Bouton pour supprimer le plan de reprise (avec double validation)
@@ -147,8 +186,11 @@ Les commandes OCTL sont schedulées directement via cron.
 - Visualisation des jobs et de leur état
 - Dashboard et liste des plans : date/heure et statut de la dernière
   exécution de chaque plan (Réussi / En cours / Erreur — en erreur dès
-  qu'une VM du dernier cycle a échoué)
+  qu'une VM du dernier cycle a échoué), badge Test PRA / Basculé si une
+  bascule est en cours ou effectuée (voir *Bascule PRA*)
 - Alerte sur les jobs avec une AK proche de sa fin de validité
+- Journal d'audit (connexions, actions de modification) — zone admin >
+  Sécurité
 
 ## Versioning et mises à jour
 

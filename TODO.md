@@ -74,6 +74,31 @@ Chantiers identifiés, à prioriser.
   choisir une OMI générique selon le type d'OS de la VM (Linux, Windows,
   RedHat).
 
+## Bascule PRA et Sandbox (demandé le 2026-07-30)
+
+- ~~Activation PRA / Test de PRA~~ — fait le 2026-07-30 : démarrage des VM
+  cible dans un ordre configurable par plan (`plans.vm_restart_order`),
+  bascule/allocation des EIP et reconstruction de la NAT Gateway côté
+  cible (`app/failover.py`, `scripts/run_bascule.py`,
+  `scripts/end_test.py`). Voir CLAUDE.MD, section *Bascule PRA*.
+- ~~Sandbox~~ — fait le 2026-07-30 : clone d'un VPC indépendant du VPC de
+  PRA persistant du plan, construit comme un Test de PRA
+  (`scripts/run_sandbox.py`), listé/géré depuis le menu **Sandbox**
+  (`/admin/sandbox`).
+- **Important — non testé en conditions réelles** : les fonctions octl
+  EIP (`CreatePublicIp`, `LinkPublicIp`, `UnlinkPublicIp`,
+  `DeletePublicIp`) et NAT Gateway (`CreateNatService`,
+  `DeleteNatService`) sont toutes neuves — leur syntaxe vient de `octl
+  iaas api <Action> --help`, mais aucune n'a encore été exécutée contre
+  un compte Outscale réel. À valider via un **Test de PRA** avant toute
+  **Activation PRA** réelle sur un plan de production.
+- Reste à faire : bouton « Basculer vers le PRA » remplacé par les deux
+  nouveaux boutons, mais pas de bascule automatique/déclenchée par une
+  panne détectée (action manuelle uniquement, volontaire) ; pas de
+  reprise de l'IP privée à la bascule (même limite que la sync normale) ;
+  la bascule/le sandbox ne gèrent que la cible « même région » (cross-
+  région hérite de la même limite que la sync normale).
+
 ---
 
 ## Connu, non planifié ici (pour mémoire)
@@ -84,19 +109,18 @@ Limitations déjà identifiées dans le code (`app/restore.py`,
 - Réplication cross-région (export/import de snapshot via S3).
 - Resync réseau : routes vers un Net peering ou une passerelle VPN non
   répliquées (ressources elles-mêmes hors scope) ; EIP et NAT Gateway
-  volontairement exclus du resync, repris seulement à la bascule (non
-  implémentée — voir point ci-dessous).
+  volontairement exclus du resync, repris seulement à la bascule (voir
+  *Bascule PRA et Sandbox* ci-dessous, fait le 2026-07-30).
 - Restauration BSU : ne gère que les devices déjà présents sur la VM
   cible lors d'un cycle de mise à jour (un nouveau volume attaché côté
   source après la création de la VM cible n'est pas répliqué
   automatiquement).
-- **Bascule (basculement vers le PRA) non implémentée** : la VM cible est
-  créée/tenue à jour à l'arrêt, mais rien ne démarre automatiquement le
-  failover — c'est aujourd'hui une action manuelle hors de l'app
-  (démarrer la VM cible, réassocier l'EIP). C'est aussi à cette étape que
-  l'EIP source devrait être détachée de la VM source et réattachée à la
-  VM cible (même région) ou qu'une nouvelle EIP devrait être allouée et
-  associée (autre région).
+- ~~Bascule (basculement vers le PRA) non implémentée~~ — fait le
+  2026-07-30, voir section *Bascule PRA et Sandbox* ci-dessous. L'IP
+  privée de la VM source n'est toujours pas reprise sur la VM cible (déjà
+  listé plus haut, section *Reprise des caractéristiques de la VM
+  source*) ; la bascule cross-région reste non gérée (dépend de
+  l'export/import S3, non implémenté).
 - **Bug réel découvert le 2026-07-29, plan test-snc** : la création de la
   VM cible échoue avec `The ImageId 'ami-5d7dbfbb' doesn't exist.` — l'AMI
   utilisée au lancement de la VM source a depuis été supprimée/dérégistrée
