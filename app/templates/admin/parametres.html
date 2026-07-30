@@ -85,10 +85,10 @@
     {% endif %}
     <div style="display:flex;gap:10px;margin-top:12px">
       <form method="post" action="/admin/backup/lancer">
-        <button type="submit" class="btn sm ghost">Sauvegarder maintenant</button>
+        <button type="submit" class="btn sm ghost icon" data-tooltip="Sauvegarder maintenant" aria-label="Sauvegarder maintenant">{{ macros.icon("download") }}</button>
       </form>
       <form method="post" action="/admin/planification/resync">
-        <button type="submit" class="btn sm ghost">Resynchroniser le crontab</button>
+        <button type="submit" class="btn sm ghost icon" data-tooltip="Resynchroniser le crontab" aria-label="Resynchroniser le crontab">{{ macros.icon("refresh") }}</button>
       </form>
     </div>
   </div>

@@ -66,6 +66,9 @@ a{color:var(--os-blue)}
 .btn.ghost{background:transparent;border-color:transparent}
 .btn.ghost:hover{background:var(--panel-2);border-color:var(--border)}
 .btn.sm{padding:5px 10px;font-size:12px}
+.btn.icon{padding:7px;width:31px;height:31px}
+.btn.sm.icon{padding:5px;width:25px;height:25px}
+.ico{flex-shrink:0}
 .btn:disabled{opacity:.45;cursor:not-allowed}
 
 /* ── Forms ── */

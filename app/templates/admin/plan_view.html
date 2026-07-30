@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as macros %}
 {% block content_class %} wide{% endblock %}
 {% block help_title %}Visualiser un plan{% endblock %}
 {% block help %}
@@ -33,7 +34,7 @@
   {% if failover_state.vm_eips %}<br>EIP de test : {% for vm_id, eip in failover_state.vm_eips.items() %}{{ vm_id }} → {{ eip.public_ip }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
   {% if failover_state.nat and failover_state.nat.public_ip %}<br>NAT de test : {{ failover_state.nat.public_ip }}{% endif %}
   <form method="post" action="/admin/plans/{{ plan.id }}/bascule/terminer-test" style="max-width:none;margin-top:8px" hx-confirm="Terminer le test ? Les VM cible seront stoppées et les EIP/NAT de test démontées.">
-    <button type="submit" class="btn sm red">Terminer le test</button>
+    <button type="submit" class="btn sm red icon" data-tooltip="Terminer le test" aria-label="Terminer le test">{{ macros.icon("stop") }}</button>
   </form>
 </div>
 {% elif plan.failover_status == "bascule" %}
@@ -46,31 +47,31 @@
 
 <div class="card">
   <div class="pbody actions" style="display:flex;gap:10px;flex-wrap:wrap">
-    <a href="/admin/plans/{{ plan.id }}/modifier" class="btn sm ghost">Modifier la configuration</a>
+    <a href="/admin/plans/{{ plan.id }}/modifier" class="btn sm ghost icon" data-tooltip="Modifier la configuration" aria-label="Modifier la configuration">{{ macros.icon("edit") }}</a>
     {% if plan.active %}
     <form method="post" action="/admin/plans/{{ plan.id }}/lancer">
-      <button type="submit" class="btn sm ghost">Lancer le plan (synchro)</button>
+      <button type="submit" class="btn sm ghost icon" data-tooltip="Lancer le plan (synchro)" aria-label="Lancer le plan (synchro)">{{ macros.icon("play") }}</button>
     </form>
     {% endif %}
     {% if user.role == "admin" and plan.failover_status == "normal" %}
-    <a href="/admin/plans/{{ plan.id }}/bascule/test" class="btn sm ghost">Test de PRA</a>
-    <a href="/admin/plans/{{ plan.id }}/bascule/activation" class="btn sm red">Activation PRA</a>
+    <a href="/admin/plans/{{ plan.id }}/bascule/test" class="btn sm ghost icon" data-tooltip="Test de PRA" aria-label="Test de PRA">{{ macros.icon("flask") }}</a>
+    <a href="/admin/plans/{{ plan.id }}/bascule/activation" class="btn sm red icon" data-tooltip="Activation PRA" aria-label="Activation PRA">{{ macros.icon("shield") }}</a>
     {% endif %}
     <form method="post" action="/admin/plans/{{ plan.id }}/sandbox/nouveau">
-      <button type="submit" class="btn sm ghost">Créer un sandbox</button>
+      <button type="submit" class="btn sm ghost icon" data-tooltip="Créer un sandbox" aria-label="Créer un sandbox">{{ macros.icon("box") }}</button>
     </form>
     {% if user.role == "admin" %}
     {% if plan.active %}
     <form method="post" action="/admin/plans/{{ plan.id }}/desactiver">
-      <button type="submit" class="btn sm ghost">Désactiver</button>
+      <button type="submit" class="btn sm ghost icon" data-tooltip="Désactiver" aria-label="Désactiver">{{ macros.icon("power") }}</button>
     </form>
     {% else %}
     <form method="post" action="/admin/plans/{{ plan.id }}/activer">
-      <button type="submit" class="btn sm ghost">Activer</button>
+      <button type="submit" class="btn sm ghost icon" data-tooltip="Activer" aria-label="Activer">{{ macros.icon("power") }}</button>
     </form>
     {% endif %}
-    <button type="button" class="btn sm ghost" disabled data-tooltip="Aucune donnée de job disponible">Exporter le journal</button>
-    <a href="/admin/plans/{{ plan.id }}/supprimer" class="btn sm red">Supprimer</a>
+    <button type="button" class="btn sm ghost icon" disabled data-tooltip="Exporter le journal — aucune donnée de job disponible" aria-label="Exporter le journal">{{ macros.icon("download") }}</button>
+    <a href="/admin/plans/{{ plan.id }}/supprimer" class="btn sm red icon" data-tooltip="Supprimer" aria-label="Supprimer">{{ macros.icon("trash") }}</a>
     {% endif %}
   </div>
 </div>
@@ -93,9 +94,9 @@
         </span>
         <span style="display:flex;gap:8px">
           <form method="post" action="/admin/plans/{{ plan.id }}/visualiser/rescan-source">
-            <button type="submit" class="btn sm ghost">Rescanner le VPC source</button>
+            <button type="submit" class="btn sm ghost icon" data-tooltip="Rescanner le VPC source" aria-label="Rescanner le VPC source">{{ macros.icon("search") }}</button>
           </form>
-          <button class="btn sm ghost" hx-post="/admin/plans/{{ plan.id }}/visualiser/resync" hx-target="#resync-result" hx-swap="innerHTML">Mettre à jour depuis la source</button>
+          <button class="btn sm ghost icon" hx-post="/admin/plans/{{ plan.id }}/visualiser/resync" hx-target="#resync-result" hx-swap="innerHTML" data-tooltip="Mettre à jour depuis la source" aria-label="Mettre à jour depuis la source">{{ macros.icon("refresh") }}</button>
         </span>
       </div>
       <div class="pbody">
@@ -193,7 +194,7 @@
               <td class="mono" style="font-size:11px;color:var(--text-muted)">{{ job.started_at }}</td>
               <td class="mono" style="font-size:12px">{{ job.vm_id or "—" }}</td>
               <td><span class="bdg {{ job.status }}">{{ {"success": "Réussi", "error": "Erreur", "running": "En cours"}[job.status] }}</span></td>
-              <td><button type="button" class="btn sm ghost" hx-get="/admin/jobs/{{ job.id }}/log" hx-target="#plan-job-log-panel" hx-swap="innerHTML">Voir</button></td>
+              <td><button type="button" class="btn sm ghost icon" hx-get="/admin/jobs/{{ job.id }}/log" hx-target="#plan-job-log-panel" hx-swap="innerHTML" data-tooltip="Voir le journal" aria-label="Voir le journal">{{ macros.icon("eye") }}</button></td>
             </tr>
             {% endfor %}
           </tbody>

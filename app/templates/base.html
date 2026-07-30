@@ -1,3 +1,4 @@
+{% import "_macros.html" as macros %}
 <!doctype html>
 <html lang="fr">
 <head>
@@ -38,11 +39,11 @@
           <a href="https://github.com/glorp-fr/osc-pra/releases" target="_blank" rel="noopener" class="hdr-update-bdg" data-tooltip="Version installée : {{ app_version }}">Mise à jour disponible : v{{ update }}</a>
           {% endif %}
         </div>
-        <button type="button" class="btn ghost sm help-btn" onclick="document.getElementById('help-modal').showModal()">? Aide</button>
+        <button type="button" class="btn ghost sm icon help-btn" onclick="document.getElementById('help-modal').showModal()" data-tooltip="Aide" aria-label="Aide">{{ macros.icon("help") }}</button>
         <div class="hdr-user">
           {{ user.username }}
           <form method="post" action="/logout" style="max-width:none">
-            <button type="submit" class="btn ghost sm">Déconnexion</button>
+            <button type="submit" class="btn ghost sm icon" data-tooltip="Déconnexion" aria-label="Déconnexion">{{ macros.icon("log-out") }}</button>
           </form>
         </div>
       </div>
@@ -80,7 +81,7 @@
   <dialog id="help-modal" class="help-modal" onclick="if (event.target === this) this.close()">
     <div class="phdr">
       <span class="stitle" style="font-size:14px">Aide — {% block help_title %}{% endblock %}</span>
-      <button type="button" class="btn sm ghost" onclick="document.getElementById('help-modal').close()">Fermer</button>
+      <button type="button" class="btn sm ghost icon" onclick="document.getElementById('help-modal').close()" data-tooltip="Fermer" aria-label="Fermer">{{ macros.icon("x") }}</button>
     </div>
     <div class="help-body">
       {% block help %}

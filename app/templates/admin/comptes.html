@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as macros %}
 {% block help_title %}Gestion des comptes{% endblock %}
 {% block help %}
 <h4>Rôles</h4>
@@ -30,13 +31,13 @@
                 <option value="{{ r }}" {{ "selected" if r == account.role else "" }}>{{ role_labels[r] }}</option>
                 {% endfor %}
               </select>
-              <button type="submit" class="btn sm ghost">Modifier</button>
+              <button type="submit" class="btn sm ghost icon" data-tooltip="Modifier le rôle" aria-label="Modifier le rôle">{{ macros.icon("edit") }}</button>
             </form>
-            <a href="/admin/comptes/{{ account.id }}/reinitialiser" class="btn sm ghost">Réinitialiser le mot de passe</a>
+            <a href="/admin/comptes/{{ account.id }}/reinitialiser" class="btn sm ghost icon" data-tooltip="Réinitialiser le mot de passe" aria-label="Réinitialiser le mot de passe">{{ macros.icon("key") }}</a>
             {% if account.username != user.username %}
-            <a href="/admin/comptes/{{ account.id }}/supprimer" class="btn sm red">Supprimer</a>
+            <a href="/admin/comptes/{{ account.id }}/supprimer" class="btn sm red icon" data-tooltip="Supprimer" aria-label="Supprimer">{{ macros.icon("trash") }}</a>
             {% else %}
-            <button type="button" class="btn sm ghost" disabled data-tooltip="Impossible de supprimer votre propre compte">Supprimer</button>
+            <button type="button" class="btn sm ghost icon" disabled data-tooltip="Impossible de supprimer votre propre compte" aria-label="Impossible de supprimer votre propre compte">{{ macros.icon("trash") }}</button>
             {% endif %}
           </td>
         </tr>

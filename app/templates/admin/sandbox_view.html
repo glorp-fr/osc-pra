@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as macros %}
 {% block content_class %} wide{% endblock %}
 {% block help_title %}Visualiser un sandbox{% endblock %}
 {% block help %}
@@ -23,15 +24,15 @@
   <div class="pbody actions" style="display:flex;gap:10px;flex-wrap:wrap">
     {% if sandbox.status == "stopped" %}
     <form method="post" action="/admin/sandbox/{{ sandbox.id }}/demarrer">
-      <button type="submit" class="btn sm ghost">Démarrer</button>
+      <button type="submit" class="btn sm ghost icon" data-tooltip="Démarrer" aria-label="Démarrer">{{ macros.icon("play") }}</button>
     </form>
     {% elif sandbox.status == "running" %}
     <form method="post" action="/admin/sandbox/{{ sandbox.id }}/arreter">
-      <button type="submit" class="btn sm ghost">Arrêter</button>
+      <button type="submit" class="btn sm ghost icon" data-tooltip="Arrêter" aria-label="Arrêter">{{ macros.icon("stop") }}</button>
     </form>
     {% endif %}
     {% if user.role == "admin" %}
-    <a href="/admin/sandbox/{{ sandbox.id }}/supprimer" class="btn sm red">Supprimer</a>
+    <a href="/admin/sandbox/{{ sandbox.id }}/supprimer" class="btn sm red icon" data-tooltip="Supprimer" aria-label="Supprimer">{{ macros.icon("trash") }}</a>
     {% endif %}
   </div>
 </div>
