@@ -1,7 +1,13 @@
 {% extends "base.html" %}
 {% import "_macros.html" as macros %}
 {% block content %}
-<div class="stitle" style="margin-bottom:16px">{{ "Modifier le plan « " ~ plan.name ~ " »" if plan else "Nouveau plan de reprise" }}</div>
+<div class="stitle" style="margin-bottom:16px">
+  {{ "Modifier le plan « " ~ plan.name ~ " »" if plan else "Nouveau plan de reprise" }}
+  {% if plan %}
+  <span class="bdg {{ 'actif' if plan.active else 'inactif' }}">{{ "Actif" if plan.active else "Désactivé" }}</span>
+  {% if plan_running %}<span class="bdg running">En cours</span>{% endif %}
+  {% endif %}
+</div>
 {% if error %}<div class="err-banner" style="margin-bottom:16px">{{ error }}</div>{% endif %}
 
 <form method="post" action="{{ '/admin/plans/' ~ plan.id ~ '/modifier' if plan else '/admin/plans/nouveau' }}">
@@ -29,6 +35,13 @@
         <option value="autre_region" {{ "selected" if plan and plan.target_type == "autre_region" else "" }}>Autre région</option>
       </select>
     </label>
+    <label>AZ cible <input type="text" name="target_subregion" placeholder="ex. eu-west-2a" value="{{ plan.target_subregion if plan else '' }}"></label>
+    <p class="hint">AZ dans laquelle sont créés les subnets et VMs cible (resynchronisation du VPC cible) — indépendante de l'AZ des subnets du VPC source.</p>
+    <label class="checkbox">
+      <input type="checkbox" name="auto_sync_target" value="1" {{ "checked" if not plan or plan.auto_sync_target }}>
+      Mise à jour du VPC cible automatique
+    </label>
+    <p class="hint">À chaque synchronisation, reconstruit les objets manquants sur le VPC cible (subnets, security groups, internet service, tables de routage) avant de répliquer les VMs.</p>
     <div id="cross-region-fields" style="display:{{ 'flex' if plan and plan.target_type == 'autre_region' else 'none' }};flex-direction:column;gap:10px">
       <label>AK cible <input type="text" name="target_ak" value="{{ plan.target_ak if plan else '' }}"></label>
       <label>SK cible <input type="password" name="target_sk" placeholder="{{ '••••••••' if plan and plan.target_sk_encrypted else '' }}"></label>
@@ -59,8 +72,20 @@
     <legend>VPC cible</legend>
     {% if plan.target_vpc_id %}
     <p class="hint">VPC cible déjà créé : {{ plan.target_vpc_id }}</p>
-    {% endif %}
+    <label class="checkbox">
+      <input type="checkbox" id="delete_old_vpc" name="delete_old" value="1">
+      Supprimer l'ancien VPC cible (et ses ressources : VMs cible, subnets, security groups, route tables, internet service) en même temps
+    </label>
+    <button
+      type="button" class="btn sm ghost"
+      hx-post="/admin/plans/{{ plan.id }}/vpc-cible"
+      hx-include="#delete_old_vpc"
+      hx-target="#vpc-target-status" hx-swap="innerHTML"
+      hx-confirm="Créer un autre VPC cible pour ce plan ? L'actuel ({{ plan.target_vpc_id }}) sortira de la configuration du plan, supprimé ou conservé selon la case ci-dessus."
+    >Créer un autre VPC cible</button>
+    {% else %}
     <button type="button" class="btn sm ghost" hx-post="/admin/plans/{{ plan.id }}/vpc-cible" hx-target="#vpc-target-status" hx-swap="innerHTML">Créer le VPC cible</button>
+    {% endif %}
     <div id="vpc-target-status"></div>
   </fieldset>
   {% endif %}
@@ -68,6 +93,7 @@
   <fieldset>
     <legend>VMs à répliquer</legend>
     <input type="hidden" name="existing_selected_vms" value='{{ existing_vm_ids | tojson }}'>
+    <input type="hidden" name="existing_vm_image_overrides" value='{{ existing_vm_image_overrides | tojson }}'>
     {% if existing_vm_ids %}
     <p class="hint">VMs actuellement sélectionnées : {{ existing_vm_ids | join(", ") }}</p>
     {% endif %}

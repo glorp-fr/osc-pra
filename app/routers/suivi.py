@@ -7,7 +7,7 @@ from app import octl
 from app.auth import require_login
 from app.crypto import decrypt
 from app.db import get_connection
-from app.jobs import recent_jobs
+from app.jobs import get_job_logs, last_executions_by_plan, recent_jobs, running_plan_ids
 from app.templates_env import templates
 
 router = APIRouter()
@@ -62,16 +62,23 @@ def suivi(request: Request):
         )
     ]
 
+    jobs = recent_jobs()
+    latest_job = jobs[0] if jobs else None
+
     return templates.TemplateResponse(
         "suivi.html",
         {
             "request": request,
             "user": user,
             "plans": plans,
-            "jobs": recent_jobs(),
+            "jobs": jobs,
+            "latest_job": latest_job,
+            "latest_job_logs": get_job_logs(latest_job["id"]) if latest_job else [],
             "octl_available": octl_available,
             "ak_statuses": ak_statuses,
             "ak_alerts": ak_alerts,
             "ak_warning_days": AK_WARNING_DAYS,
+            "running_plan_ids": running_plan_ids(),
+            "last_executions": last_executions_by_plan(),
         },
     )

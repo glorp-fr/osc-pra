@@ -14,12 +14,24 @@
 <div class="card">
   <div class="pbody">
     <table>
-      <thead><tr><th>Nom</th><th>Statut</th></tr></thead>
+      <thead><tr><th>Nom</th><th>Statut</th><th>Dernière exécution</th></tr></thead>
       <tbody>
         {% for plan in plans %}
+        {% set exec = last_executions.get(plan.id) %}
         <tr>
           <td><a href="/admin/plans/{{ plan.id }}/visualiser">{{ plan.name }}</a></td>
-          <td><span class="bdg {{ 'actif' if plan.active else 'inactif' }}">{{ "Actif" if plan.active else "Désactivé" }}</span></td>
+          <td>
+            <span class="bdg {{ 'actif' if plan.active else 'inactif' }}">{{ "Actif" if plan.active else "Désactivé" }}</span>
+            {% if plan.id in running_plan_ids %}<span class="bdg running">En cours</span>{% endif %}
+          </td>
+          <td>
+            {% if exec %}
+            <span class="mono" style="font-size:11px;color:var(--text-muted)">{{ exec.started_at }}</span>
+            <span class="bdg {{ exec.status }}">{{ {"success": "Réussi", "error": "Erreur", "running": "En cours"}[exec.status] }}</span>
+            {% else %}
+            <span style="color:var(--text-muted)">—</span>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>

@@ -11,7 +11,7 @@ from app.secret import load_or_create_secret
 
 BASE_DIR = Path(__file__).resolve().parent
 
-app = FastAPI(title="Osc-PRA")
+app = FastAPI(title="Outscale Net Replicator")
 app.add_middleware(SessionMiddleware, secret_key=load_or_create_secret())
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 

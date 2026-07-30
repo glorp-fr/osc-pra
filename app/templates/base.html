@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
-  <title>Osc-PRA</title>
+  <title>Outscale Net Replicator</title>
   <link rel="icon" href="/static/assets/favicon.png">
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&family=Open+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
@@ -27,10 +27,17 @@
     <header class="hdr">
       <div class="hdr-inner">
         <div class="logo-wrap">
-          <img src="/static/assets/logo-outscale-blanc.svg" alt="OUTSCALE" height="26">
-          <div class="logo-text-sub">Osc-PRA</div>
+          <img src="/static/assets/logo.png" alt="Glorp" height="44">
+          <div class="logo-text-sub">Outscale Net Replicator</div>
         </div>
         <div class="hdr-spacer"></div>
+        {% set update = available_update() %}
+        <div class="hdr-version">
+          v{{ app_version }}
+          {% if update %}
+          <a href="https://github.com/glorp-fr/osc-pra/releases" target="_blank" rel="noopener" class="hdr-update-bdg" data-tooltip="Version installée : {{ app_version }}">Mise à jour disponible : v{{ update }}</a>
+          {% endif %}
+        </div>
         <div class="hdr-user">
           {{ user.username }}
           <form method="post" action="/logout" style="max-width:none">
@@ -41,20 +48,25 @@
     </header>
     <div class="layout-body">
       <aside class="sidebar">
-        <div class="sb-section-title">Navigation</div>
         <div class="sb-group">
-          <a href="/suivi" class="sb-btn{% if request.url.path == '/suivi' %} on{% endif %}">Suivi</a>
+          <a href="/suivi" class="sb-btn{% if request.url.path == '/suivi' %} on{% endif %}">Dashboard</a>
         </div>
-        {% if user.role == "admin" %}
-        <div class="sb-section-title">Administration</div>
+        {% if user.role in ("admin", "operateur") %}
         <div class="sb-group">
-          <a href="/admin/parametres" class="sb-btn{% if request.url.path == '/admin/parametres' %} on{% endif %}">Paramètres</a>
-          <a href="/admin/comptes" class="sb-btn{% if request.url.path == '/admin/comptes' %} on{% endif %}">Comptes</a>
           <a href="/admin/plans" class="sb-btn{% if '/admin/plans' in request.url.path %} on{% endif %}">Plans</a>
         </div>
         {% endif %}
+        {% if user.role == "admin" %}
+        <div class="sb-admin">
+          <div class="sb-section-title">Administration</div>
+          <div class="sb-group">
+            <a href="/admin/parametres" class="sb-btn{% if request.url.path == '/admin/parametres' %} on{% endif %}">Paramètres</a>
+            <a href="/admin/comptes" class="sb-btn{% if request.url.path == '/admin/comptes' %} on{% endif %}">Comptes</a>
+          </div>
+        </div>
+        {% endif %}
       </aside>
-      <main class="content fade-in">
+      <main class="content fade-in{% block content_class %}{% endblock %}">
         {% block content %}{% endblock %}
       </main>
     </div>

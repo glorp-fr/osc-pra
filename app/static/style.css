@@ -18,8 +18,11 @@ a{color:var(--os-blue)}
 .hdr{background:var(--os-blue-dark);border-bottom:3px solid var(--os-orange);position:sticky;top:0;z-index:50}
 .hdr-inner{padding:0 20px;height:56px;display:flex;align-items:center;gap:12px}
 .logo-wrap{display:flex;align-items:center;gap:9px;flex-shrink:0}
-.logo-text-sub{font-size:10px;color:rgba(255,255,255,.5);letter-spacing:.08em;text-transform:uppercase}
+.logo-text-sub{font-size:12px;font-weight:600;color:rgba(255,255,255,.7);letter-spacing:.01em}
 .hdr-spacer{flex:1}
+.hdr-version{font-size:11px;font-family:'DM Mono',monospace;color:rgba(255,255,255,.45);display:flex;align-items:center;gap:8px}
+.hdr-update-bdg{font-family:'Open Sans',sans-serif;font-size:11px;font-weight:600;color:var(--os-blue-dark);background:var(--os-yellow);padding:3px 9px;border-radius:999px;text-decoration:none}
+.hdr-update-bdg:hover{background:var(--os-yellow-dark)}
 .hdr-user{font-size:12.5px;color:rgba(255,255,255,.75);display:flex;align-items:center;gap:10px}
 .hdr-user .btn{color:rgba(255,255,255,.85);border-color:rgba(255,255,255,.25)}
 .hdr-user .btn:hover{color:#fff;border-color:rgba(255,255,255,.5);background:rgba(255,255,255,.1)}
@@ -28,6 +31,7 @@ a{color:var(--os-blue)}
 .layout{min-height:100vh;display:flex;flex-direction:column}
 .layout-body{flex:1;display:flex;align-items:stretch}
 .content{flex:1;padding:24px;max-width:1100px}
+.content.wide{max-width:1500px}
 
 /* ── Sidebar ── */
 .sidebar{width:220px;flex-shrink:0;background:var(--os-blue-dark);border-right:3px solid var(--os-orange);padding:16px 12px;display:flex;flex-direction:column;gap:5px;position:sticky;top:56px;height:calc(100vh - 56px)}
@@ -36,6 +40,7 @@ a{color:var(--os-blue)}
 .sb-btn{display:block;width:100%;padding:8px 12px;border-radius:7px;font-size:12.5px;font-weight:500;cursor:pointer;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:rgba(255,255,255,.82);transition:all .15s;font-family:inherit;text-align:left;text-decoration:none}
 .sb-btn:hover{border-color:rgba(255,255,255,.35);background:rgba(255,255,255,.13);color:#fff}
 .sb-btn.on{background:#fff;color:var(--os-blue-dark);border-color:#fff;font-weight:600}
+.sb-admin{margin-top:auto}
 
 /* ── Login ── */
 .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg)}
@@ -64,6 +69,10 @@ a{color:var(--os-blue)}
 /* ── Forms ── */
 form{display:flex;flex-direction:column;gap:12px;max-width:480px}
 fieldset{border:1px solid var(--border);border-radius:9px;padding:13px;display:flex;flex-direction:column;gap:10px}
+.form-3col{max-width:none;display:grid;grid-template-columns:repeat(3,1fr);gap:16px;align-items:start}
+.form-3col>button[type=submit]{grid-column:1/-1;justify-self:start}
+@media (max-width:1100px){.form-3col{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:720px){.form-3col{grid-template-columns:1fr}}
 legend{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);font-weight:600;padding:0 4px}
 label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--text)}
 label.checkbox{flex-direction:row;align-items:center;gap:6px}
@@ -104,6 +113,40 @@ tr:hover td{background:var(--panel-2)}
 .ak-status.success{background:var(--ok-bg);color:var(--ok)}
 .ak-status.error{background:var(--err-bg);color:var(--err)}
 .checkbox-list{list-style:none;display:flex;flex-direction:column;gap:4px}
+.vm-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.vm-card{display:flex;flex-direction:column;gap:8px;background:var(--panel-2);border:1px solid var(--border);border-radius:7px;padding:10px}
+.vm-card label.checkbox{align-items:flex-start}
+.vm-card label.checkbox span{font-size:13px}
+@media (max-width:900px){.vm-grid{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:600px){.vm-grid{grid-template-columns:1fr}}
+
+/* ── Page Visualiser un plan : 3 colonnes (contenu, jobs, journal) ──
+   Les deux colonnes de droite sont fluides (minmax avec fr) : elles se
+   redimensionnent avec l'écran plutôt que de garder une largeur fixe. */
+.plan-layout{display:grid;grid-template-columns:minmax(0,2.2fr) minmax(0,1fr) minmax(0,1.3fr);gap:16px;align-items:start}
+.plan-jobs,.plan-log{position:sticky;top:56px;min-width:0}
+@media (max-width:1200px){.plan-layout{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.plan-log{grid-column:span 2}}
+@media (max-width:860px){.plan-layout{grid-template-columns:1fr}.plan-jobs,.plan-log{position:static;grid-column:auto}}
+
+/* Au-delà de 1200px, le journal (3e colonne) prend toute la hauteur
+   restante du viewport sous l'en-tête plutôt qu'une hauteur fixe — les logs
+   longs restent lisibles sans mini scroll box. En dessous, il repasse en
+   carte normale (hauteur au contenu, voir .log-viewer plus bas). */
+@media (min-width:1201px){
+  .plan-log{height:calc(100vh - 56px - 16px);display:flex;flex-direction:column}
+  .plan-log .card{flex:1;display:flex;flex-direction:column;min-height:0;margin-bottom:0}
+  .plan-log .pbody{flex:1;display:flex;flex-direction:column;min-height:0}
+  .plan-log .job-log{flex:1;display:flex;flex-direction:column;min-height:0}
+  .plan-log .log-viewer{flex:1;min-height:0;max-height:none}
+}
+
+/* ── Journal de job (tail -f) ── */
+.job-log-hdr{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;flex:0 0 auto}
+.log-viewer{max-height:280px;overflow-y:auto;background:var(--panel-2);border:1px solid var(--border);border-radius:7px;padding:8px 10px;font-family:'DM Mono',monospace;font-size:12px;display:flex;flex-direction:column;gap:2px}
+.log-line{display:flex;gap:8px;white-space:pre-wrap;word-break:break-word;line-height:1.5}
+.log-line .log-ts{color:var(--text-muted);flex-shrink:0}
+.log-line.log-error{color:var(--err)}
+.log-line.log-success{color:var(--ok)}
 .raw-json{background:var(--panel-2);border:1px solid var(--border);padding:12px;border-radius:7px;overflow-x:auto;font-size:12px;font-family:'DM Mono',monospace}
 
 /* ── Sélecteur de fréquence (scheduler) ── */

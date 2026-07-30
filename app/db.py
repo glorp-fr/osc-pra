@@ -14,9 +14,16 @@ EXPECTED_COLUMNS = {
         "target_ak": "TEXT",
         "target_sk_encrypted": "TEXT",
         "target_vpc_id": "TEXT",
+        "target_subregion": "TEXT",
+        "vm_image_overrides": "TEXT",
+        "auto_sync_target": "INTEGER NOT NULL DEFAULT 1",
     },
     "users": {
         "role": "TEXT NOT NULL DEFAULT 'operateur'",
+    },
+    "vm_targets": {
+        "restored_snapshot_id": "TEXT",
+        "restored_at": "TEXT",
     },
 }
 
@@ -90,6 +97,8 @@ def init_db() -> None:
             target_ak TEXT,
             target_sk_encrypted TEXT,
             target_vpc_id TEXT,
+            target_subregion TEXT,
+            vm_image_overrides TEXT,
             sync_endpoint TEXT,
             sync_bucket TEXT,
             sync_ak TEXT,
@@ -98,6 +107,7 @@ def init_db() -> None:
             snapshot_frequency TEXT,
             source_retain_count INTEGER,
             active INTEGER NOT NULL DEFAULT 1,
+            auto_sync_target INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
         """
@@ -109,6 +119,8 @@ def init_db() -> None:
             plan_id INTEGER NOT NULL,
             source_vm_id TEXT NOT NULL,
             target_vm_id TEXT NOT NULL,
+            restored_snapshot_id TEXT,
+            restored_at TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(plan_id, source_vm_id)
         )
@@ -142,6 +154,18 @@ def init_db() -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS job_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER NOT NULL,
+            logged_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            level TEXT NOT NULL DEFAULT 'info',
+            message TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_job_logs_job_id ON job_logs(job_id)")
     _migrate_schema(conn)
     conn.commit()
     conn.close()
