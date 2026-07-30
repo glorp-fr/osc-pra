@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block help_title %}Supprimer un sandbox{% endblock %}
+{% block help %}
+<p>Supprime définitivement le VPC du sandbox et tout ce qu'il contient : VM, EIP, NAT Gateway, subnets, security groups, tables de routage.</p>
+{% endblock %}
+{% block content %}
+<div class="stitle" style="margin-bottom:16px">Supprimer le sandbox du plan « {{ sandbox.plan_name }} »</div>
+
+<div class="err-banner" style="margin-bottom:16px;font-weight:600">Cette action est irréversible.</div>
+
+<div class="card">
+  <div class="pbody">
+    <p class="hint">VPC {{ sandbox.vpc_id or "—" }}, créé le {{ sandbox.created_at }}.</p>
+    <p class="hint" style="margin-top:8px">Les VM, EIP et NAT Gateway du sandbox seront supprimées, puis le réseau et le VPC lui-même.</p>
+  </div>
+</div>
+
+<form method="post" action="/admin/sandbox/{{ sandbox.id }}/supprimer" style="flex-direction:row;gap:10px;max-width:none">
+  <a href="/admin/sandbox" class="btn ghost">Annuler</a>
+  <button type="submit" class="btn red">Confirmer la suppression</button>
+</form>
+{% endblock %}

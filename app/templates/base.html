@@ -55,6 +55,7 @@
         {% if user.role in ("admin", "operateur") %}
         <div class="sb-group">
           <a href="/admin/plans" class="sb-btn{% if '/admin/plans' in request.url.path %} on{% endif %}">Plans</a>
+          <a href="/admin/sandbox" class="sb-btn{% if '/admin/sandbox' in request.url.path %} on{% endif %}">Sandbox</a>
         </div>
         {% endif %}
         {% if user.role == "admin" %}

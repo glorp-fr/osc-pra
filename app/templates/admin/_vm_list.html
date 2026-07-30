@@ -12,10 +12,15 @@
   {% for vm in vms %}
   {% set vm_name = vm.Tags | selectattr("Key", "equalto", "Name") | map(attribute="Value") | first | default(vm.VmId) %}
   {% set override = image_overrides.get(vm.VmId) if image_overrides else None %}
+  {% set restart_order = restart_orders.get(vm.VmId) if restart_orders else None %}
   <div class="vm-card">
     <label class="checkbox">
       <input type="checkbox" name="selected_vms" value="{{ vm.VmId }}" {{ "checked" if vm.VmId in (selected_ids or []) else "" }}>
       <span>{{ vm.VmId }} — {{ vm_name }} ({{ vm.VmState }})</span>
+    </label>
+    <label>
+      <span class="lbl">Ordre de démarrage à la bascule</span>
+      <input type="number" min="1" name="vm_restart_order__{{ vm.VmId }}" value="{{ restart_order if restart_order is not none else '' }}" placeholder="ex. 1">
     </label>
     {% if images %}
     <label>

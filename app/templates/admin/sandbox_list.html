@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block content_class %} wide{% endblock %}
+{% block help_title %}Sandbox{% endblock %}
+{% block help %}
+<p>Liste tous les sandbox actifs, tous plans confondus. Un sandbox est un VPC indépendant du VPC de PRA du plan, construit comme un Test de PRA (VM restaurées depuis les derniers snapshots disponibles, démarrées, EIP/NAT neuves) — pour expérimenter sans jamais toucher au VPC de PRA officiel. Se crée depuis la page Visualiser d'un plan (bouton « Créer un sandbox »).</p>
+<p><strong>Démarrer/Arrêter</strong> agit uniquement sur les VM du sandbox — le VPC, les EIP et la NAT Gateway restent en place à l'arrêt (redémarrage rapide). <strong>Supprimer</strong> démonte tout (VM, EIP, NAT, réseau, VPC).</p>
+{% endblock %}
+{% block content %}
+<div class="stitle" style="margin-bottom:16px">Sandbox</div>
+
+{% if sandboxes %}
+<div class="card">
+  <div class="pbody">
+    <table>
+      <thead><tr><th>Plan</th><th>VPC</th><th>Statut</th><th>Créé le</th><th>Par</th><th>Actions</th></tr></thead>
+      <tbody>
+        {% for sandbox in sandboxes %}
+        <tr>
+          <td><a href="/admin/sandbox/{{ sandbox.id }}">{{ sandbox.plan_name }}</a></td>
+          <td class="mono" style="font-size:12px">{{ sandbox.vpc_id or "—" }}</td>
+          <td>
+            <span class="bdg {{ 'error' if sandbox.status == 'error' else ('running' if sandbox.status in ('creating', 'deleting') else ('actif' if sandbox.status == 'running' else 'inactif')) }}">
+              {{ status_labels.get(sandbox.status, sandbox.status) }}
+            </span>
+          </td>
+          <td class="mono" style="font-size:11px;color:var(--text-muted)">{{ sandbox.created_at }}</td>
+          <td>{{ sandbox.created_by or "—" }}</td>
+          <td class="actions">
+            {% if sandbox.status == "stopped" %}
+            <form method="post" action="/admin/sandbox/{{ sandbox.id }}/demarrer">
+              <button type="submit" class="btn sm ghost">Démarrer</button>
+            </form>
+            {% elif sandbox.status == "running" %}
+            <form method="post" action="/admin/sandbox/{{ sandbox.id }}/arreter">
+              <button type="submit" class="btn sm ghost">Arrêter</button>
+            </form>
+            {% endif %}
+            <a href="/admin/sandbox/{{ sandbox.id }}" class="btn sm ghost">Voir</a>
+            {% if user.role == "admin" %}
+            <a href="/admin/sandbox/{{ sandbox.id }}/supprimer" class="btn sm red">Supprimer</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<p class="empty">Aucun sandbox actif pour le moment — créés depuis la page Visualiser d'un plan.</p>
+{% endif %}
+{% endblock %}

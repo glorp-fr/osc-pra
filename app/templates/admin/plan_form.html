@@ -11,7 +11,7 @@
 <h4>VPC source / VPC cible</h4>
 <p><strong>VPC source</strong> : scanne les VPC du compte source et sélectionne celui à répliquer. <strong>VPC cible</strong> : crée le VPC de PRA (même plage IP) sur le compte cible — n'apparaît qu'une fois le plan enregistré une première fois.</p>
 <h4>VMs à répliquer</h4>
-<p>Scanne les VMs du VPC source sélectionné et coche celles à inclure dans le plan.</p>
+<p>Scanne les VMs du VPC source sélectionné et coche celles à inclure dans le plan. L'<strong>ordre de démarrage à la bascule</strong> (optionnel) contrôle dans quel ordre les VM cible démarrent lors d'une Activation ou d'un Test de PRA — la plus petite valeur démarre en premier ; les VM sans ordre démarrent en dernier.</p>
 <h4>Gestion des snapshots</h4>
 <p>Fréquence à laquelle les snapshots des disques source sont pris, et nombre de snapshots à conserver (les plus anciens sont purgés automatiquement).</p>
 {% endblock %}
@@ -109,6 +109,7 @@
     <legend>VMs à répliquer</legend>
     <input type="hidden" name="existing_selected_vms" value='{{ existing_vm_ids | tojson }}'>
     <input type="hidden" name="existing_vm_image_overrides" value='{{ existing_vm_image_overrides | tojson }}'>
+    <input type="hidden" name="existing_vm_restart_order" value='{{ existing_vm_restart_order | tojson }}'>
     {% if existing_vm_ids %}
     <p class="hint">VMs actuellement sélectionnées : {{ existing_vm_ids | join(", ") }}</p>
     {% endif %}

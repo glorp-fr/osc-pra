@@ -502,6 +502,27 @@ def _extract_vm_image_overrides(form, selected_vms: list[str]) -> dict:
     return overrides
 
 
+def _extract_vm_restart_order(form, selected_vms: list[str]) -> dict:
+    """Même convention que _extract_vm_image_overrides : un champ dynamique
+    `vm_restart_order__{VmId}` par VM dans _vm_list.html. Ordre de
+    démarrage à la bascule PRA (voir app/failover.py::resolve_start_order),
+    plus petit démarré en premier."""
+    selected = set(selected_vms)
+    prefix = "vm_restart_order__"
+    order = {}
+    for key in form.keys():
+        if not key.startswith(prefix):
+            continue
+        vm_id = key[len(prefix):]
+        value = form.get(key)
+        if vm_id in selected and value:
+            try:
+                order[vm_id] = int(value)
+            except ValueError:
+                pass
+    return order
+
+
 def _resolve_source_vpc_id(source_vpc_id: str, plan_id: str) -> str:
     """Idem _resolve_source_sk : si le VPC source n'a pas été (re)scanné dans
     ce chargement de page, on retombe sur celui déjà enregistré sur le plan."""
@@ -545,7 +566,7 @@ def plan_new_form(request: Request):
         {
             "request": request, "user": user, "error": None, "plan": None,
             "snapshot_freq": scheduling.parse_cron(None), "existing_vm_ids": [],
-            "existing_vm_image_overrides": {},
+            "existing_vm_image_overrides": {}, "existing_vm_restart_order": {},
         },
     )
 
@@ -583,6 +604,7 @@ async def plan_new_submit(
     snapshot_frequency = scheduling.build_cron(snapshot_freq_type, snapshot_hourly_interval, snapshot_time, snapshot_days)
     form = await request.form()
     vm_image_overrides = _extract_vm_image_overrides(form, selected_vms)
+    vm_restart_order = _extract_vm_restart_order(form, selected_vms)
 
     conn = get_connection()
     try:
@@ -593,8 +615,8 @@ async def plan_new_submit(
                 target_type, target_region, target_ak, target_sk_encrypted, target_subregion,
                 sync_endpoint, sync_bucket, sync_ak,
                 sync_sk_encrypted, target_retain_count, snapshot_frequency, source_retain_count, vm_image_overrides,
-                auto_sync_target
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                auto_sync_target, vm_restart_order
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 name, source_ak, encrypt(source_sk), source_region, json.dumps(selected_vms), source_vpc_id,
@@ -603,6 +625,7 @@ async def plan_new_submit(
                 encrypt(sync_sk), target_retain_count, snapshot_frequency, source_retain_count,
                 json.dumps(vm_image_overrides),
                 1 if auto_sync_target else 0,
+                json.dumps(vm_restart_order),
             ),
         )
         conn.commit()
@@ -614,7 +637,7 @@ async def plan_new_submit(
             {
                 "request": request, "user": user, "error": "Un plan porte déjà ce nom", "plan": None,
                 "snapshot_freq": snapshot_freq, "existing_vm_ids": selected_vms,
-                "existing_vm_image_overrides": vm_image_overrides,
+                "existing_vm_image_overrides": vm_image_overrides, "existing_vm_restart_order": vm_restart_order,
             },
             status_code=400,
         )
@@ -646,6 +669,7 @@ def plan_edit_form(request: Request, plan_id: int):
             "snapshot_freq": scheduling.parse_cron(plan["snapshot_frequency"]),
             "existing_vm_ids": json.loads(plan["selected_vms"] or "[]"),
             "existing_vm_image_overrides": json.loads(plan["vm_image_overrides"] or "{}"),
+            "existing_vm_restart_order": json.loads(plan["vm_restart_order"] or "{}"),
             "plan_running": plan_id in running_plan_ids(),
         },
     )
@@ -695,6 +719,7 @@ async def plan_edit_submit(
     source_vpc_id = source_vpc_id or existing["source_vpc_id"]
     form = await request.form()
     vm_image_overrides = _extract_vm_image_overrides(form, selected_vms)
+    vm_restart_order = _extract_vm_restart_order(form, selected_vms)
 
     try:
         conn.execute(
@@ -705,7 +730,7 @@ async def plan_edit_submit(
                 target_subregion = ?,
                 sync_endpoint = ?, sync_bucket = ?, sync_ak = ?,
                 sync_sk_encrypted = ?, target_retain_count = ?, snapshot_frequency = ?, source_retain_count = ?,
-                vm_image_overrides = ?, auto_sync_target = ?
+                vm_image_overrides = ?, auto_sync_target = ?, vm_restart_order = ?
             WHERE id = ?
             """,
             (
@@ -716,6 +741,7 @@ async def plan_edit_submit(
                 sync_sk_encrypted, target_retain_count, snapshot_frequency, source_retain_count,
                 json.dumps(vm_image_overrides),
                 1 if auto_sync_target else 0,
+                json.dumps(vm_restart_order),
                 plan_id,
             ),
         )
@@ -728,7 +754,7 @@ async def plan_edit_submit(
             {
                 "request": request, "user": user, "error": "Un plan porte déjà ce nom", "plan": existing,
                 "snapshot_freq": snapshot_freq, "existing_vm_ids": selected_vms,
-                "existing_vm_image_overrides": vm_image_overrides,
+                "existing_vm_image_overrides": vm_image_overrides, "existing_vm_restart_order": vm_restart_order,
                 "plan_running": plan_id in running_plan_ids(),
             },
             status_code=400,
@@ -783,6 +809,7 @@ def plan_scan_vms(
     source_vpc_id: str = Form(""),
     existing_selected_vms: str = Form("[]"),
     existing_vm_image_overrides: str = Form("{}"),
+    existing_vm_restart_order: str = Form("{}"),
     target_type: str = Form("meme_region"),
     target_ak: str = Form(""),
     target_sk: str = Form(""),
@@ -807,6 +834,13 @@ def plan_scan_vms(
             image_overrides = {}
     except (ValueError, TypeError):
         image_overrides = {}
+
+    try:
+        restart_orders = json.loads(existing_vm_restart_order)
+        if not isinstance(restart_orders, dict):
+            restart_orders = {}
+    except (ValueError, TypeError):
+        restart_orders = {}
 
     if not (source_ak and source_sk and source_region):
         return templates.TemplateResponse(
@@ -854,6 +888,7 @@ def plan_scan_vms(
         {
             "request": request, "vms": vms, "error": error, "selected_ids": selected_ids,
             "images": images, "images_error": images_error, "image_overrides": image_overrides,
+            "restart_orders": restart_orders,
         },
     )
 
@@ -1069,6 +1104,62 @@ def plan_run_now(request: Request, plan_id: int):
 
     subprocess.Popen([cron.python_bin(), str(cron.APP_DIR / "scripts" / "run_plan.py"), str(plan_id)])
     log_event(request, user["username"], "plan_lance_manuellement", f"plan_id={plan_id}")
+    return RedirectResponse(f"/admin/plans/{plan_id}/visualiser", status_code=303)
+
+
+# --- Bascule PRA (Activation / Test) ---------------------------------------
+
+BASCULE_LABELS = {"activation": "Activation PRA", "test": "Test de PRA"}
+
+
+@router.get("/plans/{plan_id}/bascule/{mode}")
+def plan_bascule_confirm(request: Request, plan_id: int, mode: str):
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+    if mode not in BASCULE_LABELS:
+        return RedirectResponse(f"/admin/plans/{plan_id}/visualiser", status_code=303)
+
+    conn = get_connection()
+    plan = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    vm_target_count = conn.execute(
+        "SELECT COUNT(*) AS c FROM vm_targets WHERE plan_id = ?", (plan_id,)
+    ).fetchone()["c"]
+    conn.close()
+    if plan is None:
+        return RedirectResponse("/admin/plans", status_code=303)
+
+    return templates.TemplateResponse(
+        "admin/bascule_confirm.html",
+        {"request": request, "user": user, "plan": plan, "mode": mode, "label": BASCULE_LABELS[mode], "vm_target_count": vm_target_count},
+    )
+
+
+@router.post("/plans/{plan_id}/bascule/terminer-test")
+def plan_bascule_end_test(request: Request, plan_id: int):
+    # Déclarée avant la route générique /bascule/{mode} ci-dessous : sinon
+    # "terminer-test" serait capturé comme une valeur de {mode} (FastAPI
+    # matche les routes dans l'ordre de déclaration) et cette route ne
+    # serait jamais atteinte.
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    subprocess.Popen([cron.python_bin(), str(cron.APP_DIR / "scripts" / "end_test.py"), str(plan_id)])
+    log_event(request, user["username"], "bascule_test_termine", f"plan_id={plan_id}")
+    return RedirectResponse(f"/admin/plans/{plan_id}/visualiser", status_code=303)
+
+
+@router.post("/plans/{plan_id}/bascule/{mode}")
+def plan_bascule_launch(request: Request, plan_id: int, mode: str):
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+    if mode not in BASCULE_LABELS:
+        return RedirectResponse(f"/admin/plans/{plan_id}/visualiser", status_code=303)
+
+    subprocess.Popen([cron.python_bin(), str(cron.APP_DIR / "scripts" / "run_bascule.py"), str(plan_id), mode])
+    log_event(request, user["username"], f"bascule_{mode}_lancee", f"plan_id={plan_id}")
     return RedirectResponse(f"/admin/plans/{plan_id}/visualiser", status_code=303)
 
 
@@ -1308,6 +1399,7 @@ def plan_view(request: Request, plan_id: int):
         {
             "request": request,
             "user": user,
+            "failover_state": json.loads(plan["failover_state"] or "{}"),
             "plan": plan,
             "octl_available": octl.is_available(),
             "vm_rows": vm_rows,
@@ -1443,3 +1535,145 @@ def plan_view_resync(request: Request, plan_id: int):
     return templates.TemplateResponse(
         "admin/_resync_result.html", {"request": request, "summary": summary, "error": error}
     )
+
+
+# --- Sandbox -----------------------------------------------------------------
+
+SANDBOX_STATUS_LABELS = {
+    "creating": "Création en cours", "running": "En cours", "stopped": "Arrêté",
+    "deleting": "Suppression en cours", "deleted": "Supprimé", "error": "Erreur",
+}
+
+
+@router.post("/plans/{plan_id}/sandbox/nouveau")
+def sandbox_create(request: Request, plan_id: int):
+    user = require_operator(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    conn = get_connection()
+    plan = conn.execute("SELECT name FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    if plan is None:
+        conn.close()
+        return RedirectResponse("/admin/plans", status_code=303)
+    cur = conn.execute(
+        "INSERT INTO sandboxes (plan_id, created_by) VALUES (?, ?)", (plan_id, user["username"])
+    )
+    sandbox_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+
+    subprocess.Popen([cron.python_bin(), str(cron.APP_DIR / "scripts" / "run_sandbox.py"), str(sandbox_id), "create"])
+    log_event(request, user["username"], "sandbox_cree", f"plan={plan['name']} sandbox_id={sandbox_id}")
+    return RedirectResponse("/admin/sandbox", status_code=303)
+
+
+@router.get("/sandbox")
+def sandbox_list(request: Request):
+    user = require_operator(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    conn = get_connection()
+    sandboxes = conn.execute(
+        """
+        SELECT sandboxes.*, plans.name AS plan_name FROM sandboxes
+        JOIN plans ON plans.id = sandboxes.plan_id
+        WHERE sandboxes.status != 'deleted'
+        ORDER BY sandboxes.created_at DESC
+        """
+    ).fetchall()
+    conn.close()
+
+    return templates.TemplateResponse(
+        "admin/sandbox_list.html",
+        {"request": request, "user": user, "sandboxes": sandboxes, "status_labels": SANDBOX_STATUS_LABELS},
+    )
+
+
+@router.get("/sandbox/{sandbox_id}")
+def sandbox_view(request: Request, sandbox_id: int):
+    user = require_operator(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    conn = get_connection()
+    sandbox = conn.execute(
+        """
+        SELECT sandboxes.*, plans.name AS plan_name FROM sandboxes
+        JOIN plans ON plans.id = sandboxes.plan_id
+        WHERE sandboxes.id = ?
+        """,
+        (sandbox_id,),
+    ).fetchone()
+    vm_targets = conn.execute(
+        "SELECT * FROM sandbox_vm_targets WHERE sandbox_id = ?", (sandbox_id,)
+    ).fetchall() if sandbox else []
+    conn.close()
+    if sandbox is None:
+        return RedirectResponse("/admin/sandbox", status_code=303)
+
+    return templates.TemplateResponse(
+        "admin/sandbox_view.html",
+        {
+            "request": request, "user": user, "sandbox": sandbox, "vm_targets": vm_targets,
+            "state": json.loads(sandbox["state"] or "{}"), "status_labels": SANDBOX_STATUS_LABELS,
+        },
+    )
+
+
+@router.post("/sandbox/{sandbox_id}/demarrer")
+def sandbox_start(request: Request, sandbox_id: int):
+    user = require_operator(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    subprocess.Popen([cron.python_bin(), str(cron.APP_DIR / "scripts" / "run_sandbox.py"), str(sandbox_id), "start"])
+    log_event(request, user["username"], "sandbox_demarre", f"sandbox_id={sandbox_id}")
+    return RedirectResponse("/admin/sandbox", status_code=303)
+
+
+@router.post("/sandbox/{sandbox_id}/arreter")
+def sandbox_stop(request: Request, sandbox_id: int):
+    user = require_operator(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    subprocess.Popen([cron.python_bin(), str(cron.APP_DIR / "scripts" / "run_sandbox.py"), str(sandbox_id), "stop"])
+    log_event(request, user["username"], "sandbox_arrete", f"sandbox_id={sandbox_id}")
+    return RedirectResponse("/admin/sandbox", status_code=303)
+
+
+@router.get("/sandbox/{sandbox_id}/supprimer")
+def sandbox_delete_confirm(request: Request, sandbox_id: int):
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    conn = get_connection()
+    sandbox = conn.execute(
+        """
+        SELECT sandboxes.*, plans.name AS plan_name FROM sandboxes
+        JOIN plans ON plans.id = sandboxes.plan_id
+        WHERE sandboxes.id = ?
+        """,
+        (sandbox_id,),
+    ).fetchone()
+    conn.close()
+    if sandbox is None:
+        return RedirectResponse("/admin/sandbox", status_code=303)
+
+    return templates.TemplateResponse(
+        "admin/sandbox_confirm_delete.html", {"request": request, "user": user, "sandbox": sandbox}
+    )
+
+
+@router.post("/sandbox/{sandbox_id}/supprimer")
+def sandbox_delete(request: Request, sandbox_id: int):
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    subprocess.Popen([cron.python_bin(), str(cron.APP_DIR / "scripts" / "run_sandbox.py"), str(sandbox_id), "delete"])
+    log_event(request, user["username"], "sandbox_supprime", f"sandbox_id={sandbox_id}")
+    return RedirectResponse("/admin/sandbox", status_code=303)

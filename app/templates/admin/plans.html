@@ -2,7 +2,7 @@
 {% block help_title %}Plans de reprise{% endblock %}
 {% block help %}
 <p>Liste de tous les plans de reprise configurés. Clique sur le nom d'un plan pour ouvrir sa page de visualisation (ressources répliquées, VMs, journal des exécutions).</p>
-<p>La colonne <strong>Statut</strong> indique si le plan est Actif ou Désactivé, avec un badge <strong>En cours</strong> s'il est en train de s'exécuter. La colonne <strong>Dernière exécution</strong> montre la date et le résultat du dernier cycle (Réussi, En cours, ou Erreur si une VM a échoué).</p>
+<p>La colonne <strong>Statut</strong> indique si le plan est Actif ou Désactivé, avec un badge <strong>En cours</strong> s'il est en train de s'exécuter, <strong>Test PRA</strong> si un test de bascule est en cours (sync suspendue), ou <strong>Basculé</strong> après une Activation PRA réelle. La colonne <strong>Dernière exécution</strong> montre la date et le résultat du dernier cycle (Réussi, En cours, ou Erreur si une VM a échoué).</p>
 <p>Le bouton <strong>+ Nouveau plan</strong> (réservé aux admins) ouvre le formulaire de création.</p>
 {% endblock %}
 {% block content %}
@@ -29,6 +29,8 @@
           <td>
             <span class="bdg {{ 'actif' if plan.active else 'inactif' }}">{{ "Actif" if plan.active else "Désactivé" }}</span>
             {% if plan.id in running_plan_ids %}<span class="bdg running">En cours</span>{% endif %}
+            {% if plan.failover_status == "test_en_cours" %}<span class="bdg test_en_cours">Test PRA</span>{% endif %}
+            {% if plan.failover_status == "bascule" %}<span class="bdg bascule">Basculé</span>{% endif %}
           </td>
           <td>
             {% if exec %}

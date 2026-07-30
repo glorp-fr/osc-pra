@@ -3,7 +3,11 @@
 {% block help_title %}Visualiser un plan{% endblock %}
 {% block help %}
 <h4>Actions</h4>
-<p><strong>Lancer le plan (synchro)</strong> déclenche immédiatement un cycle de snapshot/restauration pour toutes les VMs sélectionnées, comme le ferait le job planifié. <strong>Basculer vers le PRA</strong> n'est pas encore implémenté. <strong>Activer/Désactiver</strong> et <strong>Supprimer</strong> sont réservés aux admins.</p>
+<p><strong>Lancer le plan (synchro)</strong> déclenche immédiatement un cycle de snapshot/restauration pour toutes les VMs sélectionnées, comme le ferait le job planifié. <strong>Activer/Désactiver</strong> et <strong>Supprimer</strong> sont réservés aux admins.</p>
+<h4>Bascule PRA</h4>
+<p><strong>Activation PRA</strong> (réservée aux admins) démarre les VM cible dans l'ordre configuré (page Modifier), réutilise les EIP de production et reconstruit la NAT Gateway avec l'ancienne IP publique (ou une nouvelle si ça échoue) — <strong>action réelle et irréversible</strong>, le plan est ensuite désactivé automatiquement. <strong>Test de PRA</strong> fait la même chose mais avec des EIP et une NAT neuves, sans jamais toucher à la production ; la sync planifiée est suspendue tant que le test tourne, à terminer explicitement via <strong>Terminer le test</strong> (redémonte tout, reprend la sync).</p>
+<h4>Sandbox</h4>
+<p><strong>Créer un sandbox</strong> clone un VPC indépendant du VPC de PRA et le construit comme un Test de PRA — pour expérimenter sans jamais toucher au VPC de PRA officiel. Géré depuis le menu Sandbox.</p>
 <h4>Ressources PRA</h4>
 <p>Compare les ressources réseau du VPC source et du VPC cible (subnets, security groups, route tables...) — un <strong>⚠ Écart détecté</strong> signale des objets manquants côté cible. Le scan du VPC source se rafraîchit automatiquement toutes les heures, ou à la demande via <strong>Rescanner le VPC source</strong>. <strong>Mettre à jour depuis la source</strong> recrée les objets manquants côté cible (subnets, security groups + règles, internet service, tables de routage — hors routes vers un Net peering/VPN, EIP et NAT Gateway, repris seulement à la bascule).</p>
 <h4>VMs et points de sauvegarde</h4>
@@ -18,8 +22,27 @@
     {{ plan.name }}
     <span class="bdg {{ 'actif' if plan.active else 'inactif' }}">{{ "Actif" if plan.active else "Désactivé" }}</span>
     {% if plan_running %}<span class="bdg running">En cours</span>{% endif %}
+    {% if plan.failover_status == "test_en_cours" %}<span class="bdg test_en_cours">Test PRA en cours</span>{% endif %}
+    {% if plan.failover_status == "bascule" %}<span class="bdg bascule">Basculé</span>{% endif %}
   </span>
 </div>
+
+{% if plan.failover_status == "test_en_cours" %}
+<div class="warn-banner" style="margin-bottom:16px">
+  <strong>Test de PRA en cours</strong> depuis {{ failover_state.started_at or "?" }}.
+  {% if failover_state.vm_eips %}<br>EIP de test : {% for vm_id, eip in failover_state.vm_eips.items() %}{{ vm_id }} → {{ eip.public_ip }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+  {% if failover_state.nat and failover_state.nat.public_ip %}<br>NAT de test : {{ failover_state.nat.public_ip }}{% endif %}
+  <form method="post" action="/admin/plans/{{ plan.id }}/bascule/terminer-test" style="max-width:none;margin-top:8px" hx-confirm="Terminer le test ? Les VM cible seront stoppées et les EIP/NAT de test démontées.">
+    <button type="submit" class="btn sm red">Terminer le test</button>
+  </form>
+</div>
+{% elif plan.failover_status == "bascule" %}
+<div class="err-banner" style="margin-bottom:16px">
+  <strong>Ce plan a basculé vers le PRA</strong> le {{ failover_state.started_at or "?" }}.
+  {% if failover_state.vm_eips %}<br>{% for vm_id, eip in failover_state.vm_eips.items() %}{{ vm_id }} → {{ eip.public_ip }}{{ " (EIP de prod réutilisée)" if eip.reused else " (nouvelle EIP)" }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+  {% if failover_state.nat and failover_state.nat.public_ip %}<br>NAT : {{ failover_state.nat.public_ip }}{{ " (IP de prod réutilisée)" if failover_state.nat.reused else " (NOUVELLE IP — l'ancienne NAT n'a pas pu être réutilisée, mets à jour tes configurations externes)" }}{% endif %}
+</div>
+{% endif %}
 
 <div class="card">
   <div class="pbody actions" style="display:flex;gap:10px;flex-wrap:wrap">
@@ -29,7 +52,13 @@
       <button type="submit" class="btn sm ghost">Lancer le plan (synchro)</button>
     </form>
     {% endif %}
-    <button type="button" class="btn sm ghost" disabled data-tooltip="Bascule vers le PRA : pas encore implémentée">Basculer vers le PRA</button>
+    {% if user.role == "admin" and plan.failover_status == "normal" %}
+    <a href="/admin/plans/{{ plan.id }}/bascule/test" class="btn sm ghost">Test de PRA</a>
+    <a href="/admin/plans/{{ plan.id }}/bascule/activation" class="btn sm red">Activation PRA</a>
+    {% endif %}
+    <form method="post" action="/admin/plans/{{ plan.id }}/sandbox/nouveau">
+      <button type="submit" class="btn sm ghost">Créer un sandbox</button>
+    </form>
     {% if user.role == "admin" %}
     {% if plan.active %}
     <form method="post" action="/admin/plans/{{ plan.id }}/desactiver">

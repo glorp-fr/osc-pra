@@ -44,7 +44,7 @@ def suivi(request: Request):
 
     conn = get_connection()
     plans = conn.execute(
-        "SELECT id, name, active, source_ak, source_sk_encrypted, source_region FROM plans ORDER BY name"
+        "SELECT id, name, active, failover_status, source_ak, source_sk_encrypted, source_region FROM plans ORDER BY name"
     ).fetchall()
     conn.close()
 

@@ -29,6 +29,8 @@
           <td>
             <span class="bdg {{ 'actif' if plan.active else 'inactif' }}">{{ "Actif" if plan.active else "Désactivé" }}</span>
             {% if plan.id in running_plan_ids %}<span class="bdg running">En cours</span>{% endif %}
+            {% if plan.failover_status == "test_en_cours" %}<span class="bdg test_en_cours">Test PRA</span>{% endif %}
+            {% if plan.failover_status == "bascule" %}<span class="bdg bascule">Basculé</span>{% endif %}
           </td>
           <td>
             {% if exec %}

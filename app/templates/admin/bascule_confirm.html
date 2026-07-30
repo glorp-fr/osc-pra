@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block help_title %}{{ label }}{% endblock %}
+{% block help %}
+<p>Page de confirmation avant de lancer une {{ label|lower }}. Voir l'aide de la page Visualiser du plan pour le détail du mécanisme (ordre de démarrage, EIP, NAT Gateway).</p>
+{% endblock %}
+{% block content %}
+<div class="stitle" style="margin-bottom:16px">{{ label }} — « {{ plan.name }} »</div>
+
+{% if mode == "activation" %}
+<div class="err-banner" style="margin-bottom:16px;font-weight:600">
+  Action réelle et irréversible : les EIP de production seront rattachées aux VM cible, l'ancienne NAT Gateway sera supprimée pour récupérer son EIP, et le plan sera désactivé à la fin.
+</div>
+<div class="warn-banner" style="margin-bottom:16px">
+  Les appels EIP/NAT Gateway sont tout neufs, jamais exécutés contre ce compte — fortement recommandé de valider d'abord avec un <a href="/admin/plans/{{ plan.id }}/bascule/test">Test de PRA</a> si ce n'est pas déjà fait.
+</div>
+{% else %}
+<div class="warn-banner" style="margin-bottom:16px">
+  Démarre les VM cible avec des EIP et une NAT Gateway neuves, sans toucher à la production. La synchro planifiée du plan sera suspendue jusqu'à ce que le test soit terminé (bouton dédié sur la page du plan).
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="pbody">
+    <p style="margin-bottom:8px">Ce qui va se passer :</p>
+    <ul style="padding-left:18px;display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--text-dim)">
+      <li>{{ vm_target_count }} VM cible déjà répliquée(s) démarrée(s), dans l'ordre configuré (page Modifier, « Ordre de démarrage à la bascule »).</li>
+      {% if mode == "activation" %}
+      <li>Rattachement de l'EIP de production de chaque VM source à sa VM cible.</li>
+      <li>Suppression de la NAT Gateway source pour recréer la NAT Gateway cible avec la même IP publique (une nouvelle IP est allouée si ça échoue, affichée sur la page du plan).</li>
+      <li>Le plan est désactivé automatiquement à la fin (sync planifiée arrêtée).</li>
+      {% else %}
+      <li>Allocation d'EIP neuves pour chaque VM cible qui en a besoin.</li>
+      <li>Création d'une NAT Gateway cible avec une EIP neuve (aucune modification côté source).</li>
+      <li>Le plan passe en statut « Test PRA en cours » jusqu'à ce que tu cliques sur « Terminer le test ».</li>
+      {% endif %}
+    </ul>
+  </div>
+</div>
+
+<form method="post" action="/admin/plans/{{ plan.id }}/bascule/{{ mode }}" style="flex-direction:row;gap:10px;max-width:none">
+  <a href="/admin/plans/{{ plan.id }}/visualiser" class="btn ghost">Annuler</a>
+  <button type="submit" class="btn {{ 'red' if mode == 'activation' else 'orange' }}">Confirmer {{ label|lower }}</button>
+</form>
+{% endblock %}

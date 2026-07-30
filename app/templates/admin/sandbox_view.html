@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block content_class %} wide{% endblock %}
+{% block help_title %}Visualiser un sandbox{% endblock %}
+{% block help %}
+<p>Détail d'un sandbox : VM restaurées avec leur EIP, IP de la NAT Gateway, et journal de la dernière opération (création/démarrage/arrêt).</p>
+{% endblock %}
+{% block content %}
+<p style="margin-bottom:4px"><a href="/admin/sandbox">&larr; Retour au sandbox</a></p>
+<div class="phdr" style="padding:0 0 16px;border:none">
+  <span class="stitle">
+    Sandbox — {{ sandbox.plan_name }}
+    <span class="bdg {{ 'error' if sandbox.status == 'error' else ('running' if sandbox.status in ('creating', 'deleting') else ('actif' if sandbox.status == 'running' else 'inactif')) }}">
+      {{ status_labels.get(sandbox.status, sandbox.status) }}
+    </span>
+  </span>
+</div>
+
+{% if sandbox.error %}
+<div class="err-banner" style="margin-bottom:16px">{{ sandbox.error }}</div>
+{% endif %}
+
+<div class="card">
+  <div class="pbody actions" style="display:flex;gap:10px;flex-wrap:wrap">
+    {% if sandbox.status == "stopped" %}
+    <form method="post" action="/admin/sandbox/{{ sandbox.id }}/demarrer">
+      <button type="submit" class="btn sm ghost">Démarrer</button>
+    </form>
+    {% elif sandbox.status == "running" %}
+    <form method="post" action="/admin/sandbox/{{ sandbox.id }}/arreter">
+      <button type="submit" class="btn sm ghost">Arrêter</button>
+    </form>
+    {% endif %}
+    {% if user.role == "admin" %}
+    <a href="/admin/sandbox/{{ sandbox.id }}/supprimer" class="btn sm red">Supprimer</a>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="phdr"><span class="stitle" style="font-size:14px">VM du sandbox</span></div>
+  <div class="pbody">
+    <p class="hint" style="margin-bottom:10px">VPC {{ sandbox.vpc_id or "—" }}, créé le {{ sandbox.created_at }} par {{ sandbox.created_by or "—" }}.</p>
+    {% if vm_targets %}
+    <table>
+      <thead><tr><th>VM source</th><th>VM sandbox</th><th>EIP</th><th>Snapshot restauré</th></tr></thead>
+      <tbody>
+        {% for row in vm_targets %}
+        {% set eip = state.vm_eips.get(row.source_vm_id) if state.vm_eips else None %}
+        <tr>
+          <td class="mono">{{ row.source_vm_id }}</td>
+          <td class="mono">{{ row.target_vm_id }}</td>
+          <td class="mono" style="font-size:12px">{{ eip.public_ip if eip else "—" }}</td>
+          <td class="mono" style="font-size:11px;color:var(--text-muted)">{{ row.restored_at or "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">Aucune VM restaurée pour le moment.</p>
+    {% endif %}
+    {% if state.nat and state.nat.public_ip %}
+    <p class="hint" style="margin-top:10px">NAT Gateway du sandbox : <span class="mono">{{ state.nat.public_ip }}</span></p>
+    {% endif %}
+  </div>
+</div>
+
+{% if sandbox.job_id %}
+<div class="card">
+  <div class="phdr"><span class="stitle" style="font-size:14px">Journal de la dernière opération</span></div>
+  <div class="pbody" id="sandbox-job-log-panel" hx-get="/admin/jobs/{{ sandbox.job_id }}/log" hx-trigger="load" hx-swap="innerHTML"></div>
+</div>
+{% endif %}
+{% endblock %}
