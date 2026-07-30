@@ -47,7 +47,7 @@
     <label>
       <select name="target_type" id="target_type" onchange="document.getElementById('cross-region-fields').style.display = this.value === 'autre_region' ? 'flex' : 'none'">
         <option value="meme_region" {{ "selected" if not plan or plan.target_type == "meme_region" else "" }}>Même région</option>
-        <option value="autre_region" {{ "selected" if plan and plan.target_type == "autre_region" else "" }}>Autre région</option>
+        <option value="autre_region" disabled {{ "selected" if plan and plan.target_type == "autre_region" else "" }}>Autre région (En cours de développement)</option>
       </select>
     </label>
     <label>AZ cible <input type="text" name="target_subregion" placeholder="ex. eu-west-2a" value="{{ plan.target_subregion if plan else '' }}"></label>
