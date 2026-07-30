@@ -248,6 +248,10 @@ update.sh             Met à jour une instance déployée vers un tag vX.Y.Z
   `data/session.key`).
 - Le fichier `creds.py` à la racine (identifiants locaux, hors du dépôt)
   est ignoré par git (`.gitignore`).
+- Sécurisation du serveur (installée par `setup.sh`, voir CLAUDE.MD
+  section *Sécurité du déploiement*) : pare-feu `ufw` (SSH/HTTP/HTTPS
+  uniquement), `fail2ban` (SSH + formulaire de connexion de l'app),
+  mises à jour de sécurité automatiques (`unattended-upgrades`).
 
 ## Licence
 

@@ -110,5 +110,53 @@ else
     log "Osc-PRA est accessible en HTTP sur cette VM (port 80)."
 fi
 
+log "Installation de fail2ban (SSH + protection du formulaire de connexion)"
+apt-get install -y -qq fail2ban >/dev/null
+
+cat > /etc/fail2ban/filter.d/osc-pra-login.conf <<'EOF'
+[Definition]
+# Pas d'ancre ^ en tête : le backend systemd de fail2ban préfixe la ligne
+# (hostname + nom de service), le "INFO:" d'uvicorn n'est donc pas en tout
+# début de ligne — voir CLAUDE.MD, section Sécurité du déploiement.
+failregex = INFO:\s+<HOST>:\d+ - "POST /login HTTP/\d\.\d" 401
+ignoreregex =
+EOF
+
+cat > /etc/fail2ban/jail.local <<EOF
+[DEFAULT]
+bantime = 1h
+findtime = 10m
+
+[sshd]
+enabled = true
+backend = systemd
+maxretry = 4
+
+[osc-pra-login]
+enabled = true
+port = http,https
+filter = osc-pra-login
+backend = systemd
+journalmatch = _SYSTEMD_UNIT=osc-pra.service
+maxretry = 5
+findtime = 15m
+bantime = 1h
+EOF
+
+fail2ban-client -t || die "Configuration fail2ban invalide."
+systemctl enable --quiet fail2ban
+systemctl restart fail2ban
+
+log "Installation du pare-feu (ufw) : SSH (limité), HTTP, HTTPS"
+apt-get install -y -qq ufw >/dev/null
+ufw default deny incoming >/dev/null
+ufw default allow outgoing >/dev/null
+ufw limit 22/tcp comment 'SSH (rate-limited)' >/dev/null
+ufw allow 80/tcp comment 'HTTP' >/dev/null
+ufw allow 443/tcp comment 'HTTPS' >/dev/null
+ufw --force enable >/dev/null
+
+warn "Pare-feu local (ufw) actif en plus du security group Outscale : vérifie que 22/80/443 sont bien ouverts au niveau du security group de cette VM (voir avertissement ci-dessus)."
+
 log "Setup terminé. Statut du service :"
 systemctl status --no-pager osc-pra || true

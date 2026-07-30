@@ -256,3 +256,33 @@ Script de setup qui :
   - Demande de FQDN
   - Mise en place de Let's Encrypt
   - Alerte sur ouverture des ports HTTP et HTTPS dans le security group
+- Sécurise le serveur (voir *Sécurité du déploiement* ci-dessous)
+
+## Sécurité du déploiement
+
+Mis en place par `setup.sh` sur une installation neuve ; déployé
+manuellement le 2026-07-30 sur les instances déjà existantes (à refaire à
+la main sur toute instance installée avant cette date).
+
+- **fail2ban** : jail `sshd` standard (backend `systemd`, pas de
+  `/var/log/auth.log` sur une install Debian/Ubuntu récente — uniquement
+  journald) ; jail `osc-pra-login` maison
+  (`/etc/fail2ban/filter.d/osc-pra-login.conf`) qui bannit une IP après 5
+  échecs de connexion en 15 min (1h de ban), en lisant directement le
+  journal du service (`journalmatch = _SYSTEMD_UNIT=osc-pra.service`,
+  regex sur les lignes d'accès uvicorn `POST /login ... 401`). Attention
+  au préfixe ajouté par le backend systemd de fail2ban (hostname + nom de
+  service) : le filtre ne doit pas ancrer `^` en tout début de ligne.
+  `fail2ban-client status osc-pra-login` pour voir les IP actuellement
+  bannies ; `fail2ban-client set osc-pra-login unbanip <ip>` pour débannir.
+- **ufw** : politique par défaut refus en entrée / autorisation en
+  sortie, seuls 22 (SSH, `limit` — throttle après trop de tentatives),
+  80 (HTTP) et 443 (HTTPS) autorisés en entrée. Vient en plus du security
+  group Outscale de la VM (deux couches de pare-feu), pas à sa place —
+  les deux doivent laisser passer 22/80/443.
+- **unattended-upgrades** : déjà actif par défaut sur une image Debian
+  standard (mises à jour de sécurité automatiques) — vérifié, pas
+  d'action supplémentaire du setup sur ce point.
+- Authentification SSH par mot de passe désactivée (`PasswordAuthentication
+  no` dans `sshd_config`) — attendu déjà en place sur l'image de base,
+  pas géré par `setup.sh`.
