@@ -108,22 +108,14 @@
       Aucune mise à jour détectée.
       {% endif %}
     </p>
-    {% if last_update %}
-    <p class="hint" style="margin-bottom:10px">
-      Dernière mise à jour lancée : {{ last_update.started_at }} —
-      <span class="bdg {{ last_update.status }}">{{ {"success": "Réussie", "error": "Échec", "running": "En cours"}[last_update.status] }}</span>
-      {% if last_update.message %}({{ last_update.message }}){% endif %}
-    </p>
-    {% endif %}
-    <div style="display:flex;gap:10px;align-items:center">
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px">
       <form method="post" action="/admin/mise-a-jour" onsubmit="return confirm('Mettre à jour vers v{{ update or "?" }} maintenant ? Le service redémarre à la fin (quelques secondes d\'interruption).')">
         <button type="submit" class="btn sm {{ 'orange' if update else 'ghost' }} icon" {{ "disabled" if not update else "" }} data-tooltip="Mettre à jour maintenant" aria-label="Mettre à jour maintenant">{{ macros.icon("refresh") }}</button>
       </form>
-      {% if last_update %}
-      <button type="button" class="btn sm ghost icon" hx-get="/admin/jobs/{{ last_update.id }}/log" hx-target="#update-job-log-panel" hx-swap="innerHTML" data-tooltip="Voir le journal" aria-label="Voir le journal">{{ macros.icon("eye") }}</button>
-      {% endif %}
     </div>
-    <div id="update-job-log-panel" style="margin-top:10px"></div>
+    <div id="update-job-log-panel">
+      {% with job = last_update, logs = last_update_logs %}{% include "admin/_job_log.html" %}{% endwith %}
+    </div>
   </div>
 </div>
 {% endblock %}

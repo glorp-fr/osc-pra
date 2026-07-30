@@ -11,6 +11,7 @@ KillMode=control-group (par défaut) — lancé comme un sous-processus normal
 de l'app, ce script serait tué par ce redémarrage avant d'avoir fini de
 journaliser le résultat.
 """
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -20,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.jobs import finish_job, log_step, start_job  # noqa: E402
 
 APP_DIR = Path(__file__).resolve().parent.parent
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def main(tag: str = "") -> None:
@@ -31,7 +33,7 @@ def main(tag: str = "") -> None:
             cmd, cwd=APP_DIR, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
         )
         for line in process.stdout:
-            line = line.rstrip()
+            line = ANSI_ESCAPE.sub("", line.rstrip())
             if line:
                 log_step(job_id, line, level="error" if "ERREUR" in line else "info")
         returncode = process.wait(timeout=300)

@@ -1,3 +1,4 @@
+import getpass
 import json
 import subprocess
 import time
@@ -46,6 +47,7 @@ def parametres_form(request: Request, message: str | None = None, cron_error: st
     conn.close()
 
     backup_freq = scheduling.parse_cron(settings["backup_frequency"] if settings else None)
+    last_update = last_job("update")
 
     return templates.TemplateResponse(
         "admin/parametres.html",
@@ -58,7 +60,8 @@ def parametres_form(request: Request, message: str | None = None, cron_error: st
             "message": message,
             "cron_error": cron_error,
             "last_backup": last_job("backup"),
-            "last_update": last_job("update"),
+            "last_update": last_update,
+            "last_update_logs": get_job_logs(last_update["id"]) if last_update else [],
             "db_size_bytes": DB_PATH.stat().st_size if DB_PATH.exists() else None,
             "cron_lines": cron.build_cron_lines(),
         },
@@ -131,6 +134,7 @@ def parametres_submit(
 
     backup_freq = scheduling.parse_cron(settings["backup_frequency"] if settings else None)
     cron_error = _sync_crontab_or_error()
+    last_update = last_job("update")
 
     return templates.TemplateResponse(
         "admin/parametres.html",
@@ -143,7 +147,8 @@ def parametres_submit(
             "message": None,
             "cron_error": cron_error,
             "last_backup": last_job("backup"),
-            "last_update": last_job("update"),
+            "last_update": last_update,
+            "last_update_logs": get_job_logs(last_update["id"]) if last_update else [],
             "db_size_bytes": DB_PATH.stat().st_size if DB_PATH.exists() else None,
             "cron_lines": cron.build_cron_lines(),
         },
@@ -169,15 +174,24 @@ def mise_a_jour_lancer(request: Request):
     (systemd-run --collect), pas un simple sous-processus de l'app :
     update.sh redémarre le service osc-pra (KillMode=control-group par
     défaut), ce qui tuerait un sous-processus normal avant qu'il ait fini
-    de journaliser le résultat — voir scripts/run_update.py."""
+    de journaliser le résultat — voir scripts/run_update.py.
+
+    Exécutée avec --uid/--gid de l'utilisateur courant (celui du service,
+    propriétaire du dépôt), pas en root : un `git diff`/`git checkout`
+    lancé en root dans un dépôt appartenant à un autre utilisateur se
+    heurte à la protection « dubious ownership » de git (et laisserait de
+    toute façon des fichiers appartenant à root dans venv/ après le `pip
+    install`). Seul `systemctl restart` (dans update.sh) a besoin de root,
+    couvert par le sudo NOPASSWD déjà en place pour cet utilisateur."""
     user = require_admin(request)
     if isinstance(user, RedirectResponse):
         return user
 
+    service_user = getpass.getuser()
     unit_name = f"osc-pra-update-{int(time.time())}"
     subprocess.Popen([
         "sudo", "systemd-run", f"--unit={unit_name}", "--collect",
-        "--description=Mise à jour Osc-PRA",
+        "--description=Mise à jour Osc-PRA", f"--uid={service_user}", f"--gid={service_user}",
         str(cron.APP_DIR / "venv" / "bin" / "python3"), str(cron.APP_DIR / "scripts" / "run_update.py"),
     ])
     log_event(request, user["username"], "mise_a_jour_lancee")

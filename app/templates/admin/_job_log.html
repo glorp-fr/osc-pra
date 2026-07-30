@@ -1,9 +1,15 @@
+{% set JOB_TYPE_LABELS = {
+  "snapshot": "Snapshot", "backup": "Sauvegarde config", "update": "Mise à jour",
+  "bascule": "Bascule PRA", "bascule_fin": "Fin de test PRA",
+  "sandbox": "Sandbox — création", "sandbox_demarrage": "Sandbox — démarrage",
+  "sandbox_arret": "Sandbox — arrêt", "sandbox_suppression": "Sandbox — suppression",
+} %}
 {% if job %}
 <div id="job-log-{{ job.id }}" class="job-log" {% if job.status == "running" %}hx-get="/admin/jobs/{{ job.id }}/log" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
   <div class="job-log-hdr">
     <span class="bdg {{ job.status }}">{{ {"success": "Réussi", "error": "Erreur", "running": "En cours"}[job.status] }}</span>
     <span class="mono" style="font-size:12px;color:var(--text-muted)">
-      {{ "Sauvegarde config" if job.job_type == "backup" else "Snapshot" }}
+      {{ JOB_TYPE_LABELS.get(job.job_type, job.job_type) }}
       {% if job.plan_name %} — {{ job.plan_name }}{% if job.vm_id %} / {{ job.vm_id }}{% endif %}{% endif %}
       — démarré le {{ job.started_at }}{% if job.finished_at %}, terminé le {{ job.finished_at }}{% endif %}
     </span>
