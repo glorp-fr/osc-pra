@@ -248,3 +248,9 @@ update.sh             Met à jour une instance déployée vers un tag vX.Y.Z
   `data/session.key`).
 - Le fichier `creds.py` à la racine (identifiants locaux, hors du dépôt)
   est ignoré par git (`.gitignore`).
+
+## Licence
+
+Logiciel fourni gratuitement, sans garantie ni support, tous droits
+réservés — voir [LICENSE](LICENSE) pour le détail (limitation de
+responsabilité, notamment en cas de perte de données).

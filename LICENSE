@@ -1,0 +1,53 @@
+Copyright (c) 2026 Glorp. Tous droits réservés.
+
+## Licence
+
+Ce logiciel (« Outscale Net Replicator », dépôt osc-pra) est fourni
+gratuitement, pour usage personnel ou interne. Aucun droit de
+redistribution, sous-licence, revente, modification à des fins de
+republication ou d'exploitation commerciale n'est accordé sans l'accord
+écrit préalable du titulaire des droits. Toute copie de ce logiciel doit
+conserver cet avis de copyright et le présent texte dans son intégralité.
+
+## Absence de garantie et de support
+
+Ce logiciel est fourni « TEL QUEL » (« AS IS »), sans garantie d'aucune
+sorte, expresse ou implicite, y compris, sans s'y limiter, les garanties
+de qualité marchande, d'adéquation à un usage particulier et d'absence de
+contrefaçon.
+
+Aucun support, maintenance, correctif de sécurité, mise à jour ou
+assistance n'est dû ni garanti. Le logiciel est utilisé entièrement aux
+risques et périls de l'utilisateur.
+
+## Limitation de responsabilité
+
+En aucun cas le titulaire des droits ou ses contributeurs ne pourront être
+tenus responsables de quelque réclamation, dommage ou autre responsabilité
+que ce soit — contractuelle, délictuelle ou autre — découlant de,
+résultant de, ou en lien avec le logiciel ou son utilisation, y compris
+sans limitation :
+
+- toute perte de données, de snapshots ou de sauvegardes ;
+- toute perte, corruption, arrêt ou suppression involontaire de VMs, de
+  volumes ou d'autres ressources cloud (y compris via les fonctions
+  d'automatisation, de resynchronisation ou de bascule PRA) ;
+- toute interruption d'activité ou perte de profits ;
+- tout dommage direct, indirect, accessoire, spécial, exemplaire ou
+  consécutif ;
+
+même si le titulaire des droits a été informé de la possibilité de tels
+dommages.
+
+Ce logiciel automatise des opérations sensibles sur une infrastructure
+cloud (snapshots, suppression de ressources, démarrage/arrêt de VM,
+bascule vers un site de secours). Il est de la responsabilité exclusive de
+l'utilisateur de :
+
+- valider son fonctionnement dans son propre environnement, y compris via
+  un test (Test de PRA) avant toute Activation PRA réelle sur un plan de
+  production ;
+- maintenir des sauvegardes indépendantes de ses données et de sa
+  configuration ;
+- s'assurer que l'utilisation du logiciel respecte ses propres
+  obligations légales, contractuelles et réglementaires.

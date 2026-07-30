@@ -32,6 +32,8 @@ a{color:var(--os-blue)}
 .layout-body{flex:1;display:flex;align-items:stretch}
 .content{flex:1;padding:24px;max-width:1100px}
 .content.wide{max-width:1500px}
+.app-footer{padding:10px 20px;font-size:11px;color:var(--text-muted);text-align:center;border-top:1px solid var(--border)}
+.app-footer a{color:var(--text-muted);text-decoration:underline}
 
 /* ── Sidebar ── */
 .sidebar{width:220px;flex-shrink:0;background:var(--os-blue-dark);border-right:3px solid var(--os-orange);padding:16px 12px;display:flex;flex-direction:column;gap:5px;position:sticky;top:56px;height:calc(100vh - 56px)}
