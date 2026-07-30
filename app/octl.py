@@ -11,6 +11,13 @@ CreateSecurityGroupRule, CreateRouteTable, LinkRouteTable, CreateRoute,
 CreateInternetService, LinkInternetService) n'ont été vérifiés qu'avec
 `octl --dry-run` (syntaxe des paramètres uniquement, sans appel réel à
 l'API) — à surveiller au premier resync/cycle de restauration réel.
+
+Les fonctions EIP (CreatePublicIp, LinkPublicIp, UnlinkPublicIp,
+DeletePublicIp) et NAT Gateway (CreateNatService, DeleteNatService),
+utilisées uniquement par la bascule PRA (voir app/failover.py), sont
+encore plus récentes : leur syntaxe vient de `octl iaas api <Action>
+--help`, mais aucune n'a jamais été exécutée contre un compte réel par ce
+code — à valider impérativement via un Test de PRA avant toute Activation.
 """
 import json
 import os
@@ -255,10 +262,17 @@ def delete_route_table(ak: str, sk: str, region: str, route_table_id: str) -> No
     _run("DeleteRouteTable", ak, sk, region, "--RouteTableId", route_table_id)
 
 
-def create_route(ak: str, sk: str, region: str, route_table_id: str, destination_ip_range: str, gateway_id: str) -> None:
+def create_route(
+    ak: str, sk: str, region: str, route_table_id: str, destination_ip_range: str,
+    gateway_id: str | None = None, nat_service_id: str | None = None,
+) -> None:
+    """`gateway_id` (internet service, resync réseau normal) et
+    `nat_service_id` (NAT Gateway, bascule PRA uniquement — voir
+    app/failover.py) sont mutuellement exclusifs côté API."""
+    target_flag, target_value = ("--NatServiceId", nat_service_id) if nat_service_id else ("--GatewayId", gateway_id)
     _run(
         "CreateRoute", ak, sk, region,
-        "--RouteTableId", route_table_id, "--DestinationIpRange", destination_ip_range, "--GatewayId", gateway_id,
+        "--RouteTableId", route_table_id, "--DestinationIpRange", destination_ip_range, target_flag, target_value,
     )
 
 
@@ -285,6 +299,73 @@ def unlink_internet_service(ak: str, sk: str, region: str, internet_service_id: 
 
 def delete_internet_service(ak: str, sk: str, region: str, internet_service_id: str) -> None:
     _run("DeleteInternetService", ak, sk, region, "--InternetServiceId", internet_service_id)
+
+
+def create_public_ip(ak: str, sk: str, region: str) -> dict:
+    """Alloue une nouvelle EIP pour le compte (aucun paramètre requis)."""
+    result = _run("CreatePublicIp", ak, sk, region)
+    if isinstance(result, dict):
+        return result
+    if isinstance(result, list) and result:
+        return result[0]
+    raise OctlError("CreatePublicIp n'a renvoyé aucune adresse IP.")
+
+
+def link_public_ip(ak: str, sk: str, region: str, public_ip_id: str, vm_id: str, allow_relink: bool = True) -> dict:
+    """Rattache une EIP à une VM. `allow_relink=True` (défaut) permet de
+    rattacher directement une EIP déjà liée à une autre VM sans avoir à
+    l'en détacher explicitement d'abord — utilisé en Activation PRA pour
+    reprendre l'EIP de la VM source sur la VM cible."""
+    args = ["--PublicIpId", public_ip_id, "--VmId", vm_id]
+    if allow_relink:
+        args += ["--AllowRelink", "true"]
+    result = _run("LinkPublicIp", ak, sk, region, *args)
+    return result if isinstance(result, dict) else (result[0] if isinstance(result, list) and result else {})
+
+
+def unlink_public_ip(ak: str, sk: str, region: str, link_public_ip_id: str) -> None:
+    _run("UnlinkPublicIp", ak, sk, region, "--LinkPublicIpId", link_public_ip_id)
+
+
+def delete_public_ip(ak: str, sk: str, region: str, public_ip_id: str) -> None:
+    _run("DeletePublicIp", ak, sk, region, "--PublicIpId", public_ip_id)
+
+
+def list_public_ips(ak: str, sk: str, region: str, vm_ids: list[str] | None = None) -> list:
+    args = ["--Filters.VmIds", ",".join(vm_ids)] if vm_ids else []
+    result = _run("ReadPublicIps", ak, sk, region, *args)
+    return result if isinstance(result, list) else result.get("PublicIps", [])
+
+
+def create_nat_service(ak: str, sk: str, region: str, subnet_id: str, public_ip_id: str, tags: list[dict] | None = None) -> dict:
+    """Crée une NAT Gateway sur `subnet_id` avec l'EIP `public_ip_id`. L'EIP
+    d'une NAT Gateway ne peut être définie qu'à la création (l'API ne permet
+    pas de la changer ensuite) — voir app/failover.py pour la bascule."""
+    result = _run("CreateNatService", ak, sk, region, "--SubnetId", subnet_id, "--PublicIpId", public_ip_id)
+    if isinstance(result, dict):
+        nat_service = result
+    elif isinstance(result, list) and result:
+        nat_service = result[0]
+    else:
+        raise OctlError("CreateNatService n'a renvoyé aucune NAT Gateway.")
+
+    nat_service_id = nat_service.get("NatServiceId")
+    if nat_service_id:
+        create_tags(ak, sk, region, nat_service_id, tags)
+    return nat_service
+
+
+def list_nat_services(ak: str, sk: str, region: str, net_id: str | None = None) -> list:
+    args = ["--Filters.NetIds", net_id] if net_id else []
+    result = _run("ReadNatServices", ak, sk, region, *args)
+    return result if isinstance(result, list) else result.get("NatServices", [])
+
+
+def delete_nat_service(ak: str, sk: str, region: str, nat_service_id: str) -> None:
+    """Détache l'EIP de la NAT Gateway (ne la libère pas) mais ne supprime
+    pas les routes qui pointent vers elle dans les tables de routage — à
+    recréer/patcher séparément (voir app/failover.py::assign_nat)."""
+    _run("DeleteNatService", ak, sk, region, "--NatServiceId", nat_service_id)
 
 
 def create_snapshot(ak: str, sk: str, region: str, volume_id: str, description: str) -> dict:

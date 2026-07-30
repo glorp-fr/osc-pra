@@ -17,6 +17,9 @@ EXPECTED_COLUMNS = {
         "target_subregion": "TEXT",
         "vm_image_overrides": "TEXT",
         "auto_sync_target": "INTEGER NOT NULL DEFAULT 1",
+        "vm_restart_order": "TEXT",
+        "failover_status": "TEXT NOT NULL DEFAULT 'normal'",
+        "failover_state": "TEXT",
     },
     "users": {
         "role": "TEXT NOT NULL DEFAULT 'operateur'",
@@ -108,6 +111,9 @@ def init_db() -> None:
             source_retain_count INTEGER,
             active INTEGER NOT NULL DEFAULT 1,
             auto_sync_target INTEGER NOT NULL DEFAULT 1,
+            vm_restart_order TEXT,
+            failover_status TEXT NOT NULL DEFAULT 'normal',
+            failover_state TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
         """
@@ -179,6 +185,35 @@ def init_db() -> None:
         """
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sandboxes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            plan_id INTEGER NOT NULL,
+            vpc_id TEXT,
+            status TEXT NOT NULL DEFAULT 'creating',
+            state TEXT,
+            error TEXT,
+            job_id INTEGER,
+            created_by TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sandbox_vm_targets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sandbox_id INTEGER NOT NULL,
+            source_vm_id TEXT NOT NULL,
+            target_vm_id TEXT NOT NULL,
+            restored_snapshot_id TEXT,
+            restored_at TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(sandbox_id, source_vm_id)
+        )
+        """
+    )
     _migrate_schema(conn)
     conn.commit()
     conn.close()

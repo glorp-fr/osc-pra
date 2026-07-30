@@ -32,6 +32,12 @@ def main(plan_id: int) -> None:
     conn.close()
     if plan is None or not plan["active"]:
         return
+    if plan["failover_status"] != "normal":
+        # Sync suspendue pendant un Test de PRA (failover_status =
+        # 'test_en_cours') — voir app/failover.py — pour ne pas écraser
+        # l'état de test en cours. Reprend automatiquement une fois le test
+        # terminé (scripts/end_test.py remet 'normal').
+        return
 
     selected_vms = json.loads(plan["selected_vms"] or "[]")
     if not selected_vms:

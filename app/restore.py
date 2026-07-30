@@ -48,37 +48,60 @@ class RestoreError(Exception):
     pass
 
 
-def _get_target_vm_id(plan_id: int, source_vm_id: str) -> str | None:
+def _get_target_vm_id(plan_id: int, source_vm_id: str, sandbox_id: int | None = None) -> str | None:
+    """`sandbox_id` bascule la lecture vers `sandbox_vm_targets` (mapping
+    des VM d'un sandbox, indépendant du mapping PRA persistant du plan dans
+    `vm_targets`) — voir app/failover.py et scripts/run_sandbox.py."""
     conn = get_connection()
-    row = conn.execute(
-        "SELECT target_vm_id FROM vm_targets WHERE plan_id = ? AND source_vm_id = ?",
-        (plan_id, source_vm_id),
-    ).fetchone()
+    if sandbox_id is not None:
+        row = conn.execute(
+            "SELECT target_vm_id FROM sandbox_vm_targets WHERE sandbox_id = ? AND source_vm_id = ?",
+            (sandbox_id, source_vm_id),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT target_vm_id FROM vm_targets WHERE plan_id = ? AND source_vm_id = ?",
+            (plan_id, source_vm_id),
+        ).fetchone()
     conn.close()
     return row["target_vm_id"] if row else None
 
 
-def _save_target_vm_id(plan_id: int, source_vm_id: str, target_vm_id: str) -> None:
+def _save_target_vm_id(plan_id: int, source_vm_id: str, target_vm_id: str, sandbox_id: int | None = None) -> None:
     conn = get_connection()
-    conn.execute(
-        "INSERT INTO vm_targets (plan_id, source_vm_id, target_vm_id) VALUES (?, ?, ?) "
-        "ON CONFLICT(plan_id, source_vm_id) DO UPDATE SET target_vm_id = excluded.target_vm_id",
-        (plan_id, source_vm_id, target_vm_id),
-    )
+    if sandbox_id is not None:
+        conn.execute(
+            "INSERT INTO sandbox_vm_targets (sandbox_id, source_vm_id, target_vm_id) VALUES (?, ?, ?) "
+            "ON CONFLICT(sandbox_id, source_vm_id) DO UPDATE SET target_vm_id = excluded.target_vm_id",
+            (sandbox_id, source_vm_id, target_vm_id),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO vm_targets (plan_id, source_vm_id, target_vm_id) VALUES (?, ?, ?) "
+            "ON CONFLICT(plan_id, source_vm_id) DO UPDATE SET target_vm_id = excluded.target_vm_id",
+            (plan_id, source_vm_id, target_vm_id),
+        )
     conn.commit()
     conn.close()
 
 
-def _record_root_restore(plan_id: int, source_vm_id: str, snapshot_id: str) -> None:
+def _record_root_restore(plan_id: int, source_vm_id: str, snapshot_id: str, sandbox_id: int | None = None) -> None:
     """Note la génération de snapshot actuellement restaurée sur le volume
     racine de la VM cible — affiché sur la page du plan (VMs et points de
     sauvegarde) pour savoir à quelle date correspond l'état de la VM cible."""
     conn = get_connection()
-    conn.execute(
-        "UPDATE vm_targets SET restored_snapshot_id = ?, restored_at = CURRENT_TIMESTAMP "
-        "WHERE plan_id = ? AND source_vm_id = ?",
-        (snapshot_id, plan_id, source_vm_id),
-    )
+    if sandbox_id is not None:
+        conn.execute(
+            "UPDATE sandbox_vm_targets SET restored_snapshot_id = ?, restored_at = CURRENT_TIMESTAMP "
+            "WHERE sandbox_id = ? AND source_vm_id = ?",
+            (snapshot_id, sandbox_id, source_vm_id),
+        )
+    else:
+        conn.execute(
+            "UPDATE vm_targets SET restored_snapshot_id = ?, restored_at = CURRENT_TIMESTAMP "
+            "WHERE plan_id = ? AND source_vm_id = ?",
+            (snapshot_id, plan_id, source_vm_id),
+        )
     conn.commit()
     conn.close()
 
@@ -149,7 +172,7 @@ def _resolve_target_network(target_ak, target_sk, target_region, target_vpc_id, 
 
 def _create_target_vm(
     plan, target_ak, target_sk, target_region, source_vm, source_subnet,
-    source_volumes_by_id, snapshots_by_volume, image_id, job_id,
+    source_volumes_by_id, snapshots_by_volume, image_id, job_id, target_vpc_id: str | None = None,
 ) -> tuple[str, str]:
     """Crée la VM cible en 5 étapes (voir CLAUDE.MD) :
     1) restaure le BSU racine depuis le snapshot — avant toute action sur la
@@ -158,10 +181,15 @@ def _create_target_vm(
     3) attend qu'elle soit `running` ;
     4) l'éteint ;
     5) détache son BSU racine fraîchement créé (depuis l'image) et attache
-       à la place le BSU restauré à l'étape 1."""
+       à la place le BSU restauré à l'étape 1.
+
+    `target_vpc_id` permet de cibler un VPC différent de celui du plan
+    (`plan["target_vpc_id"]`, utilisé par défaut) — cas d'un sandbox, voir
+    scripts/run_sandbox.py."""
     log_step(job_id, "Résolution du subnet et des security groups cible...")
     subnet_id, target_subregion, sg_ids = _resolve_target_network(
-        target_ak, target_sk, target_region, plan["target_vpc_id"], source_subnet, source_vm.get("SecurityGroups", [])
+        target_ak, target_sk, target_region, target_vpc_id or plan["target_vpc_id"],
+        source_subnet, source_vm.get("SecurityGroups", []),
     )
 
     root_device = source_vm.get("RootDeviceName")
@@ -230,7 +258,7 @@ def _create_target_vm(
 
 def _refresh_target_vm(
     target_ak, target_sk, target_region, target_vm_id, source_vm,
-    source_volumes_by_id, snapshots_by_volume, job_id, plan_id, source_vm_id,
+    source_volumes_by_id, snapshots_by_volume, job_id, plan_id, source_vm_id, sandbox_id: int | None = None,
 ) -> set:
     """Remet la VM cible en phase avec la config actuelle de la VM source à
     chaque cycle : type de VM (CPU/RAM), et BSU — volumes existants
@@ -306,7 +334,7 @@ def _refresh_target_vm(
             log_step(job_id, f"Volume {device_name} : ancien volume {old_volume_id} supprimé.")
 
         if device_name == root_device:
-            _record_root_restore(plan_id, source_vm_id, snapshot_id)
+            _record_root_restore(plan_id, source_vm_id, snapshot_id, sandbox_id)
 
         restored_devices.add(device_name)
 
@@ -345,20 +373,29 @@ def _refresh_target_vm(
 def restore_vm(
     plan, target_ak: str, target_sk: str, target_region: str, source_vm: dict, source_subnet: dict,
     source_volumes_by_id: dict, snapshots_by_volume: dict, job_id: int,
+    target_vpc_id: str | None = None, sandbox_id: int | None = None,
 ) -> str:
     """Point d'entrée appelé par scripts/run_plan.py après un snapshot
     réussi : crée la VM cible si besoin, puis remplace ses volumes par des
     volumes restaurés depuis les snapshots qui viennent d'être créés.
     Retourne un message récapitulatif ; lève RestoreError en cas d'échec.
     `job_id` sert à journaliser chaque étape (voir app/jobs.py, log_step),
-    affiché en direct sur la page Suivi et la page du plan."""
-    if not plan["target_vpc_id"]:
+    affiché en direct sur la page Suivi et la page du plan.
+
+    `target_vpc_id`/`sandbox_id` sont utilisés ensemble par
+    scripts/run_sandbox.py pour restaurer une VM dans un VPC sandbox
+    (indépendant du VPC de PRA persistant du plan) : le mapping VM
+    source -> VM sandbox est alors mémorisé dans `sandbox_vm_targets`
+    plutôt que `vm_targets`. Sans ces paramètres, comportement inchangé
+    (VPC et mapping persistants du plan)."""
+    effective_target_vpc_id = target_vpc_id or plan["target_vpc_id"]
+    if not effective_target_vpc_id:
         raise RestoreError(
             "VPC cible non créé pour ce plan — crée-le depuis la page Modifier avant d'activer la restauration."
         )
 
     source_vm_id = source_vm["VmId"]
-    target_vm_id = _get_target_vm_id(plan["id"], source_vm_id)
+    target_vm_id = _get_target_vm_id(plan["id"], source_vm_id, sandbox_id)
 
     if target_vm_id is None:
         log_step(job_id, "Aucune VM cible existante — création d'une nouvelle VM cible.")
@@ -366,16 +403,16 @@ def restore_vm(
         image_id = image_overrides.get(source_vm_id) or source_vm["ImageId"]
         target_vm_id, root_snapshot_id = _create_target_vm(
             plan, target_ak, target_sk, target_region, source_vm, source_subnet,
-            source_volumes_by_id, snapshots_by_volume, image_id, job_id,
+            source_volumes_by_id, snapshots_by_volume, image_id, job_id, effective_target_vpc_id,
         )
-        _save_target_vm_id(plan["id"], source_vm_id, target_vm_id)
-        _record_root_restore(plan["id"], source_vm_id, root_snapshot_id)
+        _save_target_vm_id(plan["id"], source_vm_id, target_vm_id, sandbox_id)
+        _record_root_restore(plan["id"], source_vm_id, root_snapshot_id, sandbox_id)
         restored_count = 1
     else:
         log_step(job_id, f"VM cible existante {target_vm_id} — mise à jour de ses volumes.")
         restored_devices = _refresh_target_vm(
             target_ak, target_sk, target_region, target_vm_id, source_vm,
-            source_volumes_by_id, snapshots_by_volume, job_id, plan["id"], source_vm_id,
+            source_volumes_by_id, snapshots_by_volume, job_id, plan["id"], source_vm_id, sandbox_id,
         )
         restored_count = len(restored_devices)
 

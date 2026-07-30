@@ -373,20 +373,29 @@ def sync_target_network(plan, target_ak: str, target_sk: str, target_region: str
     }
 
 
-def delete_target_vpc(plan, target_ak: str, target_sk: str, target_region: str, target_vpc_id: str) -> dict:
-    """Suppression best-effort d'un ancien VPC cible et de tout ce qu'il
-    contient, utilisée quand on recrée un VPC cible pour un plan qui en avait
-    déjà un (voir admin.plan_create_target_vpc). Chaque catégorie de
-    ressource est traitée indépendamment : une erreur sur l'une d'elles
+def delete_target_vpc(
+    plan, target_ak: str, target_sk: str, target_region: str, target_vpc_id: str, sandbox_id: int | None = None,
+) -> dict:
+    """Suppression best-effort d'un VPC cible et de tout ce qu'il contient.
+    Utilisée quand on recrée un VPC cible pour un plan qui en avait déjà un
+    (voir admin.plan_create_target_vpc), et par scripts/run_sandbox.py
+    (action `delete`, avec `sandbox_id` fourni — lit alors le mapping VM
+    depuis `sandbox_vm_targets` plutôt que `vm_targets`). Chaque catégorie
+    de ressource est traitée indépendamment : une erreur sur l'une d'elles
     n'empêche pas d'essayer les suivantes, tout est remonté dans `errors`
-    plutôt que de lever OctlError, pour laisser la création du nouveau VPC se
-    poursuivre même en cas de nettoyage partiel."""
+    plutôt que de lever OctlError, pour laisser l'appelant poursuivre même
+    en cas de nettoyage partiel."""
     errors: list[str] = []
 
     conn = get_connection()
-    targets = conn.execute(
-        "SELECT source_vm_id, target_vm_id FROM vm_targets WHERE plan_id = ?", (plan["id"],)
-    ).fetchall()
+    if sandbox_id is not None:
+        targets = conn.execute(
+            "SELECT source_vm_id, target_vm_id FROM sandbox_vm_targets WHERE sandbox_id = ?", (sandbox_id,)
+        ).fetchall()
+    else:
+        targets = conn.execute(
+            "SELECT source_vm_id, target_vm_id FROM vm_targets WHERE plan_id = ?", (plan["id"],)
+        ).fetchall()
     conn.close()
 
     vms_deleted = 0
