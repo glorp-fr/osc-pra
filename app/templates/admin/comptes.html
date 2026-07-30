@@ -1,4 +1,13 @@
 {% extends "base.html" %}
+{% block help_title %}Gestion des comptes{% endblock %}
+{% block help %}
+<h4>Rôles</h4>
+<p><strong>Admin</strong> : accès complet (comptes, paramètres, gestion des plans). <strong>Opérateur</strong> : peut créer/modifier/lancer les plans, sans accès aux paramètres ni aux comptes. <strong>Lecture seule</strong> : consultation uniquement.</p>
+<h4>Actions</h4>
+<p>Change le rôle d'un compte via le menu déroulant puis <strong>Modifier</strong>. <strong>Réinitialiser le mot de passe</strong> en génère un nouveau. Un compte ne peut pas se supprimer lui-même.</p>
+<h4>Créer un compte</h4>
+<p>Renseigne un identifiant, un mot de passe (8 caractères minimum) et un rôle.</p>
+{% endblock %}
 {% block content %}
 <div class="stitle" style="margin-bottom:16px">Gestion des comptes</div>
 {% if error %}<div class="err-banner" style="margin-bottom:16px">{{ error }}</div>{% endif %}

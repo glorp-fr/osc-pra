@@ -1,6 +1,17 @@
 {% extends "base.html" %}
 {% import "_macros.html" as macros %}
 {% block content_class %} wide{% endblock %}
+{% block help_title %}Paramètres globaux{% endblock %}
+{% block help %}
+<h4>Messagerie</h4>
+<p>Email source/cible et serveur SMTP pour l'alerting par email — champs déjà en place, notifications pas encore envoyées.</p>
+<h4>Stockage de la configuration</h4>
+<p>Où sauvegarder la base SQLite : localement, ou sur un bucket S3 dédié.</p>
+<h4>Base de données</h4>
+<p>Statut de la base et date de la dernière sauvegarde. <strong>Sauvegarder maintenant</strong> lance une sauvegarde immédiate vers S3 (mode « Bucket dédié » de la sauvegarde, ou celui de stockage de la configuration si « Réutiliser »), en plus de la planification automatique configurée ici.</p>
+<h4>Planification</h4>
+<p>Aperçu du crontab généré pour l'utilisateur du service (sauvegarde de la configuration + snapshots des plans actifs). <strong>Resynchroniser le crontab</strong> le régénère à partir de la configuration actuelle si besoin.</p>
+{% endblock %}
 {% block content %}
 <div class="stitle" style="margin-bottom:16px">Paramètres globaux</div>
 {% if saved %}<div class="ok-banner" style="margin-bottom:16px">Paramètres enregistrés.</div>{% endif %}

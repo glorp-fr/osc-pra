@@ -1,4 +1,10 @@
 {% extends "base.html" %}
+{% block help_title %}Plans de reprise{% endblock %}
+{% block help %}
+<p>Liste de tous les plans de reprise configurés. Clique sur le nom d'un plan pour ouvrir sa page de visualisation (ressources répliquées, VMs, journal des exécutions).</p>
+<p>La colonne <strong>Statut</strong> indique si le plan est Actif ou Désactivé, avec un badge <strong>En cours</strong> s'il est en train de s'exécuter. La colonne <strong>Dernière exécution</strong> montre la date et le résultat du dernier cycle (Réussi, En cours, ou Erreur si une VM a échoué).</p>
+<p>Le bouton <strong>+ Nouveau plan</strong> (réservé aux admins) ouvre le formulaire de création.</p>
+{% endblock %}
 {% block content %}
 <div class="phdr" style="padding:0 0 16px;border:none">
   <span class="stitle">Plans de reprise</span>

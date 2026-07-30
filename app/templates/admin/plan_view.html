@@ -1,5 +1,16 @@
 {% extends "base.html" %}
 {% block content_class %} wide{% endblock %}
+{% block help_title %}Visualiser un plan{% endblock %}
+{% block help %}
+<h4>Actions</h4>
+<p><strong>Lancer le plan (synchro)</strong> déclenche immédiatement un cycle de snapshot/restauration pour toutes les VMs sélectionnées, comme le ferait le job planifié. <strong>Basculer vers le PRA</strong> n'est pas encore implémenté. <strong>Activer/Désactiver</strong> et <strong>Supprimer</strong> sont réservés aux admins.</p>
+<h4>Ressources PRA</h4>
+<p>Compare les ressources réseau du VPC source et du VPC cible (subnets, security groups, route tables...) — un <strong>⚠ Écart détecté</strong> signale des objets manquants côté cible. Le scan du VPC source se rafraîchit automatiquement toutes les heures, ou à la demande via <strong>Rescanner le VPC source</strong>. <strong>Mettre à jour depuis la source</strong> recrée les objets manquants côté cible (subnets, security groups + règles, internet service, tables de routage — hors routes vers un Net peering/VPN, EIP et NAT Gateway, repris seulement à la bascule).</p>
+<h4>VMs et points de sauvegarde</h4>
+<p>Pour chaque VM : nombre de snapshots disponibles, date du dernier snapshot, date du snapshot restauré sur la VM cible, et statut — <strong>Défaillant</strong> si le dernier job de cette VM est en erreur.</p>
+<h4>Journal des exécutions</h4>
+<p>Historique des jobs de ce plan (un par VM et par cycle). Le bouton <strong>Voir</strong> affiche le détail pas-à-pas dans le panneau Journal.</p>
+{% endblock %}
 {% block content %}
 <p style="margin-bottom:4px"><a href="/admin/plans">&larr; Retour aux plans</a></p>
 <div class="phdr" style="padding:0 0 16px;border:none">

@@ -1,4 +1,13 @@
 {% extends "base.html" %}
+{% block help_title %}Dashboard{% endblock %}
+{% block help %}
+<h4>Plans de reprise</h4>
+<p>Un plan est <strong>Actif</strong> ou <strong>Désactivé</strong> (ne s'exécute plus), et peut être <strong>En cours</strong> d'exécution. La colonne <strong>Dernière exécution</strong> indique la date du dernier cycle de synchronisation et son statut agrégé : Réussi, En cours, ou <strong>Erreur</strong> dès qu'au moins une VM du dernier cycle a échoué. La colonne AK/SK affiche la validité de la clé source (rouge si invalide ou expiration à moins de 7 jours).</p>
+<h4>Jobs</h4>
+<p>Historique des exécutions récentes, une ligne par VM traitée. Le bouton <strong>Voir</strong> ouvre le journal détaillé de ce job ci-dessous.</p>
+<h4>Alertes</h4>
+<p>Liste les plans dont l'AK/SK source est invalide ou arrive bientôt à expiration.</p>
+{% endblock %}
 {% block content %}
 <div class="stitle" style="margin-bottom:16px">Dashboard</div>
 

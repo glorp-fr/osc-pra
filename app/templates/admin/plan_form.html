@@ -1,6 +1,20 @@
 {% extends "base.html" %}
 {% import "_macros.html" as macros %}
 {% block content_class %} wide{% endblock %}
+{% block help_title %}Configuration d'un plan{% endblock %}
+{% block help %}
+<h4>Général / AK/SK source</h4>
+<p>Nom du plan, puis l'AK/SK et la région du compte source. Le bouton <strong>Tester l'AK/SK</strong> vérifie la clé et affiche sa date d'expiration.</p>
+<h4>Cible de réplication</h4>
+<p><strong>Même région</strong> : la VM cible est créée sur le même compte, dans un VPC dédié (« VPC de PRA »). <strong>Autre région</strong> : nécessite un compte cible distinct (AK/SK, région) et un bucket S3 de synchro pour l'export/import des snapshots (non implémenté à ce jour).</p>
+<p>La case <strong>Mise à jour du VPC cible automatique</strong> (activée par défaut) reconstruit à chaque synchronisation les objets manquants côté cible (subnets, security groups, internet service, tables de routage) — désactive-la si tu préfères ne resynchroniser que manuellement depuis la page Visualiser du plan.</p>
+<h4>VPC source / VPC cible</h4>
+<p><strong>VPC source</strong> : scanne les VPC du compte source et sélectionne celui à répliquer. <strong>VPC cible</strong> : crée le VPC de PRA (même plage IP) sur le compte cible — n'apparaît qu'une fois le plan enregistré une première fois.</p>
+<h4>VMs à répliquer</h4>
+<p>Scanne les VMs du VPC source sélectionné et coche celles à inclure dans le plan.</p>
+<h4>Gestion des snapshots</h4>
+<p>Fréquence à laquelle les snapshots des disques source sont pris, et nombre de snapshots à conserver (les plus anciens sont purgés automatiquement).</p>
+{% endblock %}
 {% block content %}
 <div class="stitle" style="margin-bottom:16px">
   {{ "Modifier le plan « " ~ plan.name ~ " »" if plan else "Nouveau plan de reprise" }}
