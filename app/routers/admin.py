@@ -1,5 +1,6 @@
 import json
 import subprocess
+import time
 from urllib.parse import quote
 
 from fastapi import APIRouter, Form, Request
@@ -57,6 +58,7 @@ def parametres_form(request: Request, message: str | None = None, cron_error: st
             "message": message,
             "cron_error": cron_error,
             "last_backup": last_job("backup"),
+            "last_update": last_job("update"),
             "db_size_bytes": DB_PATH.stat().st_size if DB_PATH.exists() else None,
             "cron_lines": cron.build_cron_lines(),
         },
@@ -141,6 +143,7 @@ def parametres_submit(
             "message": None,
             "cron_error": cron_error,
             "last_backup": last_job("backup"),
+            "last_update": last_job("update"),
             "db_size_bytes": DB_PATH.stat().st_size if DB_PATH.exists() else None,
             "cron_lines": cron.build_cron_lines(),
         },
@@ -157,6 +160,30 @@ def backup_run_now(request: Request):
     log_event(request, user["username"], "sauvegarde_lancee_manuellement")
     return RedirectResponse(
         "/admin/parametres?message=Sauvegarde+lanc%C3%A9e+en+arri%C3%A8re-plan", status_code=303
+    )
+
+
+@router.post("/mise-a-jour")
+def mise_a_jour_lancer(request: Request):
+    """Lance update.sh via une unité systemd transitoire indépendante
+    (systemd-run --collect), pas un simple sous-processus de l'app :
+    update.sh redémarre le service osc-pra (KillMode=control-group par
+    défaut), ce qui tuerait un sous-processus normal avant qu'il ait fini
+    de journaliser le résultat — voir scripts/run_update.py."""
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    unit_name = f"osc-pra-update-{int(time.time())}"
+    subprocess.Popen([
+        "sudo", "systemd-run", f"--unit={unit_name}", "--collect",
+        "--description=Mise à jour Osc-PRA",
+        str(cron.APP_DIR / "venv" / "bin" / "python3"), str(cron.APP_DIR / "scripts" / "run_update.py"),
+    ])
+    log_event(request, user["username"], "mise_a_jour_lancee")
+    return RedirectResponse(
+        "/admin/parametres?message=Mise+%C3%A0+jour+lanc%C3%A9e+en+arri%C3%A8re-plan+%E2%80%94+le+service+va+red%C3%A9marrer",
+        status_code=303,
     )
 
 

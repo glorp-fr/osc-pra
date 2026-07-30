@@ -243,6 +243,19 @@ section *Bascule PRA et Sandbox*).
   migrations de schéma s'appliquent automatiquement au démarrage de l'app
   (`init_db()`, appelé par `app/main.py` au `startup`) — rien à faire
   manuellement de ce côté.
+- Mise à jour depuis l'UI : bouton « Mettre à jour maintenant » (zone admin
+  > Paramètres, section *Mise à jour*, admins uniquement), actif dès qu'une
+  mise à jour est détectée. Exécute `update.sh` (vers le dernier tag,
+  aucun choix de tag depuis l'UI — rollback vers un tag antérieur toujours
+  possible en SSH via `./update.sh <tag>`) et journalise chaque étape comme
+  un job (`scripts/run_update.py`, `job_type = "update"`), consultable
+  depuis la page Paramètres. Lancé via `sudo systemd-run --unit=... --collect`
+  (`app/routers/admin.py::mise_a_jour_lancer`) plutôt qu'un simple
+  sous-processus de l'app : `update.sh` redémarre `osc-pra.service`, qui
+  tourne en `KillMode=control-group` (par défaut) — un sous-processus normal
+  serait tué par ce redémarrage avant d'avoir fini de journaliser le
+  résultat. Mécanisme vérifié en conditions réelles (survit à un vrai
+  redémarrage du service) avant intégration.
 
 ## Déploiement
 

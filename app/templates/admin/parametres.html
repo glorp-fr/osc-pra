@@ -11,6 +11,8 @@
 <p>Statut de la base et date de la dernière sauvegarde. <strong>Sauvegarder maintenant</strong> lance une sauvegarde immédiate vers S3 (mode « Bucket dédié » de la sauvegarde, ou celui de stockage de la configuration si « Réutiliser »), en plus de la planification automatique configurée ici.</p>
 <h4>Planification</h4>
 <p>Aperçu du crontab généré pour l'utilisateur du service (sauvegarde de la configuration + snapshots des plans actifs). <strong>Resynchroniser le crontab</strong> le régénère à partir de la configuration actuelle si besoin.</p>
+<h4>Mise à jour</h4>
+<p>Version installée et dernière release GitHub disponible. <strong>Mettre à jour maintenant</strong> exécute <code>update.sh</code> (checkout du dernier tag, dépendances, redémarrage du service — quelques secondes d'interruption) et journalise chaque étape, consultable via le bouton Voir une fois lancée.</p>
 {% endblock %}
 {% block content %}
 <div class="stitle" style="margin-bottom:16px">Paramètres globaux</div>
@@ -91,6 +93,37 @@
         <button type="submit" class="btn sm ghost icon" data-tooltip="Resynchroniser le crontab" aria-label="Resynchroniser le crontab">{{ macros.icon("refresh") }}</button>
       </form>
     </div>
+  </div>
+</div>
+
+{% set update = available_update() %}
+<div class="card" style="margin-top:16px">
+  <div class="phdr"><span class="stitle" style="font-size:14px">Mise à jour</span></div>
+  <div class="pbody">
+    <p class="hint" style="margin-bottom:10px">
+      Version installée : <strong class="mono">v{{ app_version }}</strong>.
+      {% if update %}
+      Dernière version disponible : <strong class="mono">v{{ update }}</strong>.
+      {% else %}
+      Aucune mise à jour détectée.
+      {% endif %}
+    </p>
+    {% if last_update %}
+    <p class="hint" style="margin-bottom:10px">
+      Dernière mise à jour lancée : {{ last_update.started_at }} —
+      <span class="bdg {{ last_update.status }}">{{ {"success": "Réussie", "error": "Échec", "running": "En cours"}[last_update.status] }}</span>
+      {% if last_update.message %}({{ last_update.message }}){% endif %}
+    </p>
+    {% endif %}
+    <div style="display:flex;gap:10px;align-items:center">
+      <form method="post" action="/admin/mise-a-jour" onsubmit="return confirm('Mettre à jour vers v{{ update or "?" }} maintenant ? Le service redémarre à la fin (quelques secondes d\'interruption).')">
+        <button type="submit" class="btn sm {{ 'orange' if update else 'ghost' }} icon" {{ "disabled" if not update else "" }} data-tooltip="Mettre à jour maintenant" aria-label="Mettre à jour maintenant">{{ macros.icon("refresh") }}</button>
+      </form>
+      {% if last_update %}
+      <button type="button" class="btn sm ghost icon" hx-get="/admin/jobs/{{ last_update.id }}/log" hx-target="#update-job-log-panel" hx-swap="innerHTML" data-tooltip="Voir le journal" aria-label="Voir le journal">{{ macros.icon("eye") }}</button>
+      {% endif %}
+    </div>
+    <div id="update-job-log-panel" style="margin-top:10px"></div>
   </div>
 </div>
 {% endblock %}
