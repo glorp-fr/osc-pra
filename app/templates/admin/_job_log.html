@@ -1,0 +1,24 @@
+{% if job %}
+<div id="job-log-{{ job.id }}" class="job-log" {% if job.status == "running" %}hx-get="/admin/jobs/{{ job.id }}/log" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  <div class="job-log-hdr">
+    <span class="bdg {{ job.status }}">{{ {"success": "Réussi", "error": "Erreur", "running": "En cours"}[job.status] }}</span>
+    <span class="mono" style="font-size:12px;color:var(--text-muted)">
+      {{ "Sauvegarde config" if job.job_type == "backup" else "Snapshot" }}
+      {% if job.plan_name %} — {{ job.plan_name }}{% if job.vm_id %} / {{ job.vm_id }}{% endif %}{% endif %}
+      — démarré le {{ job.started_at }}{% if job.finished_at %}, terminé le {{ job.finished_at }}{% endif %}
+    </span>
+  </div>
+  <div class="log-viewer" id="log-viewer-{{ job.id }}">
+    {% for line in logs %}
+    <div class="log-line log-{{ line.level }}"><span class="log-ts">{{ line.logged_at }}</span> {{ line.message }}</div>
+    {% else %}
+    <p class="empty">Aucune ligne de journal pour ce job.</p>
+    {% endfor %}
+  </div>
+</div>
+<script>
+(function(){var v=document.getElementById('log-viewer-{{ job.id }}'); if(v){v.scrollTop=v.scrollHeight;}})();
+</script>
+{% else %}
+<p class="empty">Aucun job à afficher.</p>
+{% endif %}

@@ -32,19 +32,20 @@ Chantiers identifiés, à prioriser.
 
 ## Gestion des mises à jour
 
-- Pas de mécanisme de mise à jour de l'application aujourd'hui (déploiement
-  manuel : `git pull` + redémarrage du service — voir README, section
-  *Exploitation*).
-- Vérifier/documenter une procédure de mise à jour propre : migration de
-  schéma (`app/db.py` gère déjà l'ajout de colonnes via
-  `EXPECTED_COLUMNS`, à étendre si besoin), redémarrage sans perte de job
-  en cours, rollback en cas de souci.
+- ~~Pas de mécanisme de mise à jour de l'application~~ — fait le 2026-07-30 :
+  versioning SemVer (fichier `VERSION`, `0.1.0`), script `update.sh`
+  (checkout du dernier tag `vX.Y.Z`, dépendances, redémarrage du service),
+  version + bandeau « mise à jour disponible » (release GitHub) affichés en
+  haut à droite de chaque vue. Détails et politique de compatibilité dans
+  CLAUDE.MD, section *Versioning et mises à jour*.
+- Reste à faire : créer réellement la branche `dev` sur le dépôt, poser le
+  premier tag `v0.1.0` sur `main`, et rollback testé en conditions réelles
+  (`update.sh <tag antérieur>`) — pas encore fait, seul le mécanisme est en
+  place.
 - Suivi de version d'`octl` : le setup installe la dernière release au
   moment de l'install, mais rien ne vérifie ensuite si une mise à jour
   d'octl est disponible/nécessaire, ni ne fixe une version minimale
   compatible.
-- Éventuellement : affichage de la version de l'app / d'octl dans l'UI
-  (page Paramètres).
 
 ## Corrections et ajustements UI
 
@@ -55,6 +56,18 @@ Chantiers identifiés, à prioriser.
   sans détail sur le changement attendu — à préciser (quelles entrées,
   quel regroupement, lié à l'ouverture de la gestion des plans aux
   opérateurs ?).
+
+## Reprise des caractéristiques de la VM source (demandé le 2026-07-30)
+
+- ~~Reprise des tags de la VM source sur la VM cible (ex. tag `Name`)~~ —
+  fait le 2026-07-30 : tous les tags source sont désormais repris (VPC,
+  subnets, security groups, route tables, VMs, volumes cible), pas
+  seulement Name ; remis en phase à chaque cycle pour les VMs.
+- Reprise de l'IP privée de la VM source sur la VM cible.
+- OMI de la VM cible : ne plus réutiliser directement l'`ImageId` de la
+  VM source (cf. bug OMI supprimée, section *Connu, non planifié*), mais
+  choisir une OMI générique selon le type d'OS de la VM (Linux, Windows,
+  RedHat).
 
 ---
 

@@ -124,6 +124,58 @@ Les commandes OCTL sont schedulées directement via cron.
 - Visualisation des jobs et de leur état
 - Alerte sur les jobs avec une AK proche de sa fin de validité
 
+## Versioning et mises à jour
+
+- SemVer (`MAJOR.MINOR.PATCH`), version courante trackée dans le fichier
+  `VERSION` à la racine du dépôt (texte brut, ex. `0.1.0`) — première version
+  publiée : `0.1.0`.
+  - `PATCH` : correctif sans changement de comportement.
+  - `MINOR` : nouvelle fonctionnalité rétrocompatible.
+  - `MAJOR` : breaking change assumé (voir politique de compatibilité
+    ci-dessous — à éviter autant que possible, donc rare tant que le produit
+    n'a pas atteint `1.0.0`).
+  - La version est affichée en haut à droite de chaque vue de l'application
+    (`app/templates/base.html`, bloc `.hdr-version`), lue une fois au
+    démarrage par `app/version.py::current_version()` et exposée à tous les
+    templates via `templates.env.globals["app_version"]`
+    (`app/templates_env.py`).
+- Un bandeau « Mise à jour disponible » s'affiche à côté de la version si une
+  release GitHub plus récente existe (`app/version.py::available_update()`) :
+  interroge `GET /repos/glorp-fr/osc-pra/releases/latest`, résultat mis en
+  cache 6h pour ne pas solliciter l'API à chaque requête, échec silencieux
+  (offline, GitHub injoignable...) — l'absence de bandeau ne garantit donc pas
+  que l'app est à jour, seulement qu'aucune mise à jour n'a pu être détectée.
+- Branches Git :
+  - `main` : version déployée chez les clients. Ne reçoit que des merges
+    depuis `dev` (release) ou des hotfixes ponctuels — toujours dans un état
+    déployable. Chaque merge vers `main` s'accompagne d'un bump de `VERSION`
+    et d'un tag `vX.Y.Z` (+ release GitHub correspondante), c'est ce tag que
+    `update.sh` cible par défaut.
+  - `dev` : intégration des évolutions en cours, base des branches de
+    fonctionnalité.
+- Politique de compatibilité (à vérifier à chaque évolution avant de merger
+  vers `dev`/`main`) :
+  - Schéma DB : uniquement des migrations additives (nouvelle colonne via
+    `EXPECTED_COLUMNS`/`_migrate_schema`, voir `app/db.py`) — jamais de
+    suppression/renommage de colonne existante sans plan de migration
+    explicite, une base SQLite existante chez un client doit continuer à
+    fonctionner après `update.sh`.
+  - Routes/URLs existantes : pas de changement de comportement ou de
+    suppression sans réflexion préalable (scripts cron déjà déployés,
+    éventuels appels externes).
+  - Configuration existante (`settings`, `plans`, variables d'environnement,
+    fichier `VERSION` lui-même) : doit rester valide après mise à jour, sans
+    intervention manuelle autre qu'`update.sh`.
+- Mise à jour d'une instance déployée : script `update.sh` à la racine du
+  dépôt — fetch des tags, `git checkout` du dernier tag `vX.Y.Z` (ou d'un tag
+  précis passé en argument, y compris pour un rollback vers un tag
+  antérieur), mise à jour des dépendances Python (`pip install -r
+  requirements.txt`), redémarrage du service systemd `osc-pra`. Refuse de
+  s'exécuter si des modifications locales non commitées existent. Les
+  migrations de schéma s'appliquent automatiquement au démarrage de l'app
+  (`init_db()`, appelé par `app/main.py` au `startup`) — rien à faire
+  manuellement de ce côté.
+
 ## Déploiement
 
 Distributions supportées : Debian, Ubuntu (script basé sur apt).

@@ -86,43 +86,90 @@ def list_vpcs(ak: str, sk: str, region: str) -> list:
     return _run("ReadNets", ak, sk, region)
 
 
-def create_vpc(ak: str, sk: str, region: str, ip_range: str, name: str) -> dict:
+def list_images(ak: str, sk: str, region: str) -> list:
+    return _run("ReadImages", ak, sk, region)
+
+
+def delete_net(ak: str, sk: str, region: str, net_id: str) -> None:
+    _run("DeleteNet", ak, sk, region, "--NetId", net_id)
+
+
+def create_tags(ak: str, sk: str, region: str, resource_id: str, tags: list[dict] | None) -> None:
+    """Applique une liste de tags (format API OSC : [{"Key": .., "Value": ..}])
+    à une ressource cible déjà créée — utilisé pour répliquer tous les tags
+    d'une ressource source (pas seulement Name) sur son équivalent cible."""
+    if not tags:
+        return
+    payload = json.dumps({"ResourceIds": [resource_id], "Tags": tags})
+    _run("CreateTags", ak, sk, region, "--payload", payload)
+
+
+def _merge_name_tag(name: str, tags: list[dict] | None) -> list[dict]:
+    """Combine un nom déjà résolu (tag Name attendu côté cible, potentiellement
+    différent du tag Name source — cas du VPC, suffixé, ou du fallback sur
+    l'ID en l'absence de tag Name source) avec le reste des tags source,
+    Name exclu pour ne pas le dupliquer/contredire."""
+    merged = [{"Key": "Name", "Value": name}] if name else []
+    merged += [t for t in (tags or []) if t.get("Key") != "Name"]
+    return merged
+
+
+def create_vpc(ak: str, sk: str, region: str, ip_range: str, name: str, tags: list[dict] | None = None) -> dict:
     """Recrée un VPC (Net) à l'identique du point de vue réseau (même IpRange),
-    avec un tag Name pour le retrouver côté cible."""
+    avec un tag Name pour le retrouver côté cible et les autres tags du VPC
+    source (`tags`, Name exclu — le nom cible est volontairement différent du
+    nom source, voir app.routers.admin.plan_create_target_vpc)."""
     net = _run("CreateNet", ak, sk, region, "--IpRange", ip_range)
     net_id = net.get("NetId") if isinstance(net, dict) else None
-    if net_id and name:
-        payload = json.dumps({"ResourceIds": [net_id], "Tags": [{"Key": "Name", "Value": name}]})
-        _run("CreateTags", ak, sk, region, "--payload", payload)
+    if net_id:
+        create_tags(ak, sk, region, net_id, _merge_name_tag(name, tags))
     return net
 
 
-def create_subnet(ak: str, sk: str, region: str, net_id: str, ip_range: str, subregion: str, name: str) -> dict:
+def create_subnet(
+    ak: str, sk: str, region: str, net_id: str, ip_range: str, subregion: str, name: str,
+    tags: list[dict] | None = None,
+) -> dict:
     """Recrée un subnet à l'identique (même IpRange, même sous-région) dans
-    le VPC cible, avec un tag Name pour le retrouver côté cible."""
+    le VPC cible, avec un tag Name pour le retrouver côté cible et les autres
+    tags du subnet source (`tags`, Name exclu)."""
     subnet = _run(
         "CreateSubnet", ak, sk, region,
         "--NetId", net_id, "--IpRange", ip_range, "--SubregionName", subregion,
     )
     subnet_id = subnet.get("SubnetId") if isinstance(subnet, dict) else None
-    if subnet_id and name:
-        payload = json.dumps({"ResourceIds": [subnet_id], "Tags": [{"Key": "Name", "Value": name}]})
-        _run("CreateTags", ak, sk, region, "--payload", payload)
+    if subnet_id:
+        create_tags(ak, sk, region, subnet_id, _merge_name_tag(name, tags))
     return subnet
+
+
+def delete_subnet(ak: str, sk: str, region: str, subnet_id: str) -> None:
+    _run("DeleteSubnet", ak, sk, region, "--SubnetId", subnet_id)
 
 
 def list_security_groups(ak: str, sk: str, region: str) -> list:
     return _run("ReadSecurityGroups", ak, sk, region)
 
 
-def create_security_group(ak: str, sk: str, region: str, net_id: str, name: str, description: str) -> dict:
+def create_security_group(
+    ak: str, sk: str, region: str, net_id: str, name: str, description: str,
+    tags: list[dict] | None = None,
+) -> dict:
     """Recrée un security group à l'identique (nom + description) dans le VPC
-    cible. Les règles sont répliquées séparément par create_security_group_rule
-    (voir app/target.py)."""
-    return _run(
+    cible, avec les tags du security group source. Les règles sont répliquées
+    séparément par create_security_group_rule (voir app/target.py)."""
+    sg = _run(
         "CreateSecurityGroup", ak, sk, region,
         "--NetId", net_id, "--SecurityGroupName", name, "--Description", description or name,
     )
+    sg_id = sg.get("SecurityGroupId") if isinstance(sg, dict) else None
+    if sg_id:
+        create_tags(ak, sk, region, sg_id, tags)
+    return sg
+
+
+def delete_security_group(ak: str, sk: str, region: str, security_group_id: str) -> None:
+    _run("DeleteSecurityGroup", ak, sk, region, "--SecurityGroupId", security_group_id)
 
 
 def create_security_group_rule(
@@ -175,11 +222,13 @@ def list_route_tables(ak: str, sk: str, region: str) -> list:
     return _run("ReadRouteTables", ak, sk, region)
 
 
-def create_route_table(ak: str, sk: str, region: str, net_id: str, name: str) -> dict:
-    """Crée une route table et la tague (Name) pour pouvoir la retrouver côté
-    cible lors d'un prochain resync — CreateRouteTable ne prend pas de nom en
-    paramètre, seul le tag permet de l'identifier (contrairement aux security
-    groups, identifiés par leur SecurityGroupName)."""
+def create_route_table(
+    ak: str, sk: str, region: str, net_id: str, name: str, tags: list[dict] | None = None,
+) -> dict:
+    """Crée une route table et la tague (Name + reste des tags source) pour
+    pouvoir la retrouver côté cible lors d'un prochain resync — CreateRouteTable
+    ne prend pas de nom en paramètre, seul le tag permet de l'identifier
+    (contrairement aux security groups, identifiés par leur SecurityGroupName)."""
     result = _run("CreateRouteTable", ak, sk, region, "--NetId", net_id)
     if isinstance(result, dict):
         route_table = result
@@ -189,14 +238,21 @@ def create_route_table(ak: str, sk: str, region: str, net_id: str, name: str) ->
         raise OctlError("CreateRouteTable n'a renvoyé aucune route table.")
 
     route_table_id = route_table.get("RouteTableId")
-    if route_table_id and name:
-        payload = json.dumps({"ResourceIds": [route_table_id], "Tags": [{"Key": "Name", "Value": name}]})
-        _run("CreateTags", ak, sk, region, "--payload", payload)
+    if route_table_id:
+        create_tags(ak, sk, region, route_table_id, _merge_name_tag(name, tags))
     return route_table
 
 
 def link_route_table(ak: str, sk: str, region: str, route_table_id: str, subnet_id: str) -> None:
     _run("LinkRouteTable", ak, sk, region, "--RouteTableId", route_table_id, "--SubnetId", subnet_id)
+
+
+def unlink_route_table(ak: str, sk: str, region: str, link_route_table_id: str) -> None:
+    _run("UnlinkRouteTable", ak, sk, region, "--LinkRouteTableId", link_route_table_id)
+
+
+def delete_route_table(ak: str, sk: str, region: str, route_table_id: str) -> None:
+    _run("DeleteRouteTable", ak, sk, region, "--RouteTableId", route_table_id)
 
 
 def create_route(ak: str, sk: str, region: str, route_table_id: str, destination_ip_range: str, gateway_id: str) -> None:
@@ -221,6 +277,14 @@ def create_internet_service(ak: str, sk: str, region: str) -> dict:
 
 def link_internet_service(ak: str, sk: str, region: str, internet_service_id: str, net_id: str) -> None:
     _run("LinkInternetService", ak, sk, region, "--InternetServiceId", internet_service_id, "--NetId", net_id)
+
+
+def unlink_internet_service(ak: str, sk: str, region: str, internet_service_id: str, net_id: str) -> None:
+    _run("UnlinkInternetService", ak, sk, region, "--InternetServiceId", internet_service_id, "--NetId", net_id)
+
+
+def delete_internet_service(ak: str, sk: str, region: str, internet_service_id: str) -> None:
+    _run("DeleteInternetService", ak, sk, region, "--InternetServiceId", internet_service_id)
 
 
 def create_snapshot(ak: str, sk: str, region: str, volume_id: str, description: str) -> dict:
@@ -249,29 +313,41 @@ def start_vm(ak: str, sk: str, region: str, vm_id: str) -> None:
     _run("StartVms", ak, sk, region, "--VmIds", vm_id)
 
 
+def update_vm_type(ak: str, sk: str, region: str, vm_id: str, vm_type: str) -> None:
+    """Change le type (CPU/RAM) d'une VM — nécessite que la VM soit à
+    l'arrêt (contrainte de l'API, voir `octl iaas api UpdateVm --help`)."""
+    _run("UpdateVm", ak, sk, region, "--VmId", vm_id, "--VmType", vm_type)
+
+
+def delete_vm(ak: str, sk: str, region: str, vm_id: str) -> None:
+    _run("DeleteVms", ak, sk, region, "--VmIds", vm_id)
+
+
 def create_vm(
     ak: str, sk: str, region: str, image_id: str, vm_type: str, subnet_id: str,
-    security_group_ids: list[str], subregion: str, root_device_name: str, root_snapshot_id: str,
-    root_volume_type: str | None = None, root_iops: int | None = None,
+    security_group_ids: list[str], subregion: str, tags: list[dict] | None = None,
 ) -> dict:
-    """Crée la VM cible à l'arrêt (aucun boot automatique), avec son volume
-    racine restauré directement depuis le snapshot fourni plutôt que depuis
-    l'image (voir restore.py pour l'orchestration complète)."""
+    """Crée la VM cible avec un boot normal depuis l'image (volume racine
+    par défaut, démarrage automatique) : son BSU racine est ensuite
+    remplacé par le volume restauré depuis le snapshot une fois la VM à
+    l'arrêt (voir restore.py pour l'orchestration complète).
+
+    --Placement.Tenancy est toujours envoyé explicitement aux côtés de
+    --Placement.SubregionName : dès qu'un sous-champ de --Placement.* est
+    posé, octl sérialise tout l'objet Placement, et Tenancy vaut alors ""
+    par défaut plutôt que d'être omis — "" n'est pas une valeur Tenancy
+    valide (default | dedicated | id de groupe dédié) et fait échouer
+    CreateVms avec InvalidParameterValue (constaté en pratique, code retour
+    4045 sans détail)."""
     args = [
         "--ImageId", image_id,
         "--VmType", vm_type,
         "--SubnetId", subnet_id,
         "--Placement.SubregionName", subregion,
+        "--Placement.Tenancy", "default",
         "--MinVmsCount", "1",
         "--MaxVmsCount", "1",
-        "--BlockDeviceMappings.0.DeviceName", root_device_name,
-        "--BlockDeviceMappings.0.Bsu.SnapshotId", root_snapshot_id,
-        "--BlockDeviceMappings.0.Bsu.DeleteOnVmDeletion",
     ]
-    if root_volume_type:
-        args += ["--BlockDeviceMappings.0.Bsu.VolumeType", root_volume_type]
-    if root_iops:
-        args += ["--BlockDeviceMappings.0.Bsu.Iops", str(root_iops)]
     if security_group_ids:
         args += ["--SecurityGroupIds", ",".join(security_group_ids)]
 
@@ -279,7 +355,11 @@ def create_vm(
     vms = result if isinstance(result, list) else result.get("Vms", [result] if result else [])
     if not vms:
         raise OctlError("CreateVms n'a renvoyé aucune VM.")
-    return vms[0]
+    vm = vms[0]
+    vm_id = vm.get("VmId")
+    if vm_id:
+        create_tags(ak, sk, region, vm_id, tags)
+    return vm
 
 
 def list_volumes(ak: str, sk: str, region: str, volume_ids: list[str] | None = None) -> list:
@@ -290,19 +370,30 @@ def list_volumes(ak: str, sk: str, region: str, volume_ids: list[str] | None = N
 
 def create_volume(
     ak: str, sk: str, region: str, snapshot_id: str, subregion: str,
-    volume_type: str | None = None, iops: int | None = None,
+    volume_type: str | None = None, iops: int | None = None, tags: list[dict] | None = None,
 ) -> dict:
+    """`iops` n'est envoyé que pour un volume io1 : ReadVolumes renvoie un
+    Iops non nul même pour un volume gp2/standard (valeur dérivée, non
+    configurable pour ces types) — le passer tel quel fait échouer
+    CreateVolume avec InvalidParameterValue (constaté en pratique, code
+    retour 4045 sans détail, sur un volume source gp2)."""
     args = ["--SnapshotId", snapshot_id, "--SubregionName", subregion]
     if volume_type:
         args += ["--VolumeType", volume_type]
-    if iops:
+    if iops and volume_type == "io1":
         args += ["--Iops", str(iops)]
     result = _run("CreateVolume", ak, sk, region, *args)
     if isinstance(result, dict):
-        return result
-    if isinstance(result, list) and result:
-        return result[0]
-    raise OctlError("CreateVolume n'a renvoyé aucun volume.")
+        volume = result
+    elif isinstance(result, list) and result:
+        volume = result[0]
+    else:
+        raise OctlError("CreateVolume n'a renvoyé aucun volume.")
+
+    volume_id = volume.get("VolumeId")
+    if volume_id:
+        create_tags(ak, sk, region, volume_id, tags)
+    return volume
 
 
 def attach_volume(ak: str, sk: str, region: str, volume_id: str, vm_id: str, device_name: str) -> None:

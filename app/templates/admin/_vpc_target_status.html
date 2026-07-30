@@ -1,6 +1,21 @@
 {% if error %}
 <div class="err-banner">{{ error }}</div>
 {% elif result %}
+{% if result.old_vpc_id %}
+{% if result.old_vpc_deletion %}
+{% with d = result.old_vpc_deletion %}
+<div class="ak-status {{ "error" if d.errors else "success" }}">
+  Ancien VPC cible {{ result.old_vpc_id }} retiré de la configuration du plan.
+  Suppression : VMs {{ d.vms_deleted }}/{{ d.vms_total }}, security groups {{ d.sgs_deleted }},
+  route tables {{ d.route_tables_deleted }}, internet service {{ "supprimé" if d.internet_service_deleted else "non applicable" }},
+  subnets {{ d.subnets_deleted }}, VPC {{ "supprimé" if d.vpc_deleted else "non supprimé" }}.
+  {% if d.errors %}<br>Erreurs (nettoyage manuel possiblement requis) : {{ d.errors | join(" · ") }}{% endif %}
+</div>
+{% endwith %}
+{% else %}
+<div class="ak-status success">Ancien VPC cible {{ result.old_vpc_id }} retiré de la configuration du plan, conservé tel quel sur le compte cible.</div>
+{% endif %}
+{% endif %}
 <div class="ak-status success">VPC cible créé : {{ result.vpc_id }} ({{ result.ip_range }})</div>
 {% if result.sync_summary %}
 {% with summary = result.sync_summary %}

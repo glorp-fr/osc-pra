@@ -3,6 +3,8 @@ from pathlib import Path
 
 from fastapi.templating import Jinja2Templates
 
+from app.version import available_update, current_version
+
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 templates = Jinja2Templates(directory=Path(__file__).resolve().parent / "templates")
@@ -17,3 +19,5 @@ def _static_version() -> str:
 
 
 templates.env.globals["asset_version"] = _static_version()
+templates.env.globals["app_version"] = current_version()
+templates.env.globals["available_update"] = available_update

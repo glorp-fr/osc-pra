@@ -1,8 +1,13 @@
 {% extends "base.html" %}
+{% block content_class %} wide{% endblock %}
 {% block content %}
 <p style="margin-bottom:4px"><a href="/admin/plans">&larr; Retour aux plans</a></p>
 <div class="phdr" style="padding:0 0 16px;border:none">
-  <span class="stitle">{{ plan.name }} <span class="bdg {{ 'actif' if plan.active else 'inactif' }}">{{ "Actif" if plan.active else "Désactivé" }}</span></span>
+  <span class="stitle">
+    {{ plan.name }}
+    <span class="bdg {{ 'actif' if plan.active else 'inactif' }}">{{ "Actif" if plan.active else "Désactivé" }}</span>
+    {% if plan_running %}<span class="bdg running">En cours</span>{% endif %}
+  </span>
 </div>
 
 <div class="card">
@@ -34,100 +39,139 @@
 <div class="err-banner" style="margin-bottom:16px">octl n'est pas installé sur ce serveur — les scans et la resynchronisation échoueront.</div>
 {% endif %}
 
-<div class="card">
-  <div class="phdr">
-    <span class="stitle" style="font-size:14px">
-      Ressources PRA
-      {% if resources.mismatch %}
-      <span class="bdg error">⚠ Écart détecté</span>
-      {% elif resources.source_error or resources.target_error %}
-      <span class="bdg error">⚠ Comparaison impossible</span>
-      {% endif %}
-    </span>
-    <span style="display:flex;gap:8px">
-      <form method="post" action="/admin/plans/{{ plan.id }}/visualiser/rescan-source">
-        <button type="submit" class="btn sm ghost">Rescanner le VPC source</button>
-      </form>
-      <button class="btn sm ghost" hx-post="/admin/plans/{{ plan.id }}/visualiser/resync" hx-target="#resync-result" hx-swap="innerHTML">Mettre à jour depuis la source</button>
-    </span>
+<div class="plan-layout">
+  <div class="plan-main">
+    <div class="card">
+      <div class="phdr">
+        <span class="stitle" style="font-size:14px">
+          Ressources PRA
+          {% if resources.mismatch %}
+          <span class="bdg error">⚠ Écart détecté</span>
+          {% elif resources.source_error or resources.target_error %}
+          <span class="bdg error">⚠ Comparaison impossible</span>
+          {% endif %}
+        </span>
+        <span style="display:flex;gap:8px">
+          <form method="post" action="/admin/plans/{{ plan.id }}/visualiser/rescan-source">
+            <button type="submit" class="btn sm ghost">Rescanner le VPC source</button>
+          </form>
+          <button class="btn sm ghost" hx-post="/admin/plans/{{ plan.id }}/visualiser/resync" hx-target="#resync-result" hx-swap="innerHTML">Mettre à jour depuis la source</button>
+        </span>
+      </div>
+      <div class="pbody">
+        <div id="resync-result" style="margin-bottom:6px"></div>
+
+        {% if resources.source_error %}
+        <div class="err-banner" style="margin-bottom:10px">VPC source : {{ resources.source_error }}</div>
+        {% endif %}
+        {% if resources.target_error %}
+        <div class="err-banner" style="margin-bottom:10px">VPC cible : {{ resources.target_error }}</div>
+        {% endif %}
+
+        <table style="margin-bottom:10px">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>VPC source{% if plan.source_vpc_id %} <span class="mono" style="font-weight:400;text-transform:none">({{ plan.source_vpc_id }})</span>{% endif %}</th>
+              <th>VPC cible{% if plan.target_vpc_id %} <span class="mono" style="font-weight:400;text-transform:none">({{ plan.target_vpc_id }})</span>{% endif %}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in resources.rows %}
+            <tr>
+              <td>{{ row.label }}</td>
+              <td{% if row.mismatch %} style="color:var(--err);font-weight:600"{% endif %}>{{ row.source if row.source is not none else "—" }}</td>
+              <td{% if row.mismatch %} style="color:var(--err);font-weight:600"{% endif %}>{{ row.target if row.target is not none else "—" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <p class="hint" style="margin-bottom:10px">Dernière analyse du VPC source : {{ resources.scanned_at or "jamais — rescan automatique toutes les heures, ou clique sur « Rescanner le VPC source »" }}.</p>
+        <p class="hint">La resynchronisation crée, à partir du VPC source (par nom) : les subnets, les security groups et leurs règles, l'internet service, et les tables de routage (routes locales et vers l'internet service — les routes vers un Net peering ou une passerelle VPN ne sont pas répliquées). Les EIP et la NAT Gateway ne sont volontairement pas repris ici : une VM avec EIP la récupère (même région) ou en reçoit une nouvelle (autre région) au moment de la bascule vers le PRA.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="phdr"><span class="stitle" style="font-size:14px">VMs et points de sauvegarde</span></div>
+      <div class="pbody">
+        {% if last_full_snapshot %}
+        <p class="hint" style="margin-bottom:10px">Dernier point de restauration complet (toutes les VMs disponibles) : <strong>{{ last_full_snapshot }}</strong></p>
+        {% else %}
+        <p class="hint" style="margin-bottom:10px">Aucun point de restauration complet pour l'instant — au moins une VM sélectionnée n'a pas encore de snapshot réussi.</p>
+        {% endif %}
+
+        {% if vm_rows %}
+        <table>
+          <thead><tr><th>VM</th><th>EIP après bascule</th><th>Points de sauvegarde disponibles</th><th>Dernier snapshot</th><th>Snapshot restauré sur la VM cible</th><th>Statut</th></tr></thead>
+          <tbody>
+            {% for row in vm_rows %}
+            <tr>
+              <td class="mono">{{ row.vm_id }}</td>
+              <td class="mono" style="font-size:12px">
+                {% if row.eip %}
+                  {{ row.eip }}
+                  <span style="color:var(--text-muted);font-family:inherit">
+                    ({{ "identique à la prod" if plan.target_type == "meme_region" else "nouvelle EIP" }})
+                  </span>
+                {% else %}
+                <span style="color:var(--text-muted)">—</span>
+                {% endif %}
+              </td>
+              <td>{{ row.backup_points }}</td>
+              <td class="mono" style="font-size:11px;color:var(--text-muted)">{{ row.last_snapshot or "—" }}</td>
+              <td class="mono" style="font-size:11px;color:var(--text-muted)">{{ row.target_restored_at or "—" }}</td>
+              <td>
+                {% if row.status == "defaillant" %}
+                <span class="bdg error">Défaillant</span>
+                {% elif row.status == "desactive" %}
+                <span class="bdg inactif">Désactivé</span>
+                {% else %}
+                <span class="bdg actif">Activé (et fonctionnel)</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="empty">Aucune VM sélectionnée pour ce plan.</p>
+        {% endif %}
+      </div>
+    </div>
   </div>
-  <div class="pbody">
-    <div id="resync-result" style="margin-bottom:6px"></div>
 
-    {% if resources.source_error %}
-    <div class="err-banner" style="margin-bottom:10px">VPC source : {{ resources.source_error }}</div>
-    {% endif %}
-    {% if resources.target_error %}
-    <div class="err-banner" style="margin-bottom:10px">VPC cible : {{ resources.target_error }}</div>
-    {% endif %}
-
-    <table style="margin-bottom:10px">
-      <thead>
-        <tr>
-          <th>Type</th>
-          <th>VPC source{% if plan.source_vpc_id %} <span class="mono" style="font-weight:400;text-transform:none">({{ plan.source_vpc_id }})</span>{% endif %}</th>
-          <th>VPC cible{% if plan.target_vpc_id %} <span class="mono" style="font-weight:400;text-transform:none">({{ plan.target_vpc_id }})</span>{% endif %}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in resources.rows %}
-        <tr>
-          <td>{{ row.label }}</td>
-          <td{% if row.mismatch %} style="color:var(--err);font-weight:600"{% endif %}>{{ row.source if row.source is not none else "—" }}</td>
-          <td{% if row.mismatch %} style="color:var(--err);font-weight:600"{% endif %}>{{ row.target if row.target is not none else "—" }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    <p class="hint" style="margin-bottom:10px">Dernière analyse du VPC source : {{ resources.scanned_at or "jamais — rescan automatique toutes les heures, ou clique sur « Rescanner le VPC source »" }}.</p>
-    <p class="hint">La resynchronisation crée, à partir du VPC source (par nom) : les subnets, les security groups et leurs règles, l'internet service, et les tables de routage (routes locales et vers l'internet service — les routes vers un Net peering ou une passerelle VPN ne sont pas répliquées). Les EIP et la NAT Gateway ne sont volontairement pas repris ici : une VM avec EIP la récupère (même région) ou en reçoit une nouvelle (autre région) au moment de la bascule vers le PRA.</p>
+  <div class="plan-jobs">
+    <div class="card">
+      <div class="phdr"><span class="stitle" style="font-size:14px">Journal des exécutions</span></div>
+      <div class="pbody">
+        {% if plan_jobs %}
+        <table style="margin-bottom:0">
+          <thead><tr><th>Démarré le</th><th>VM</th><th>Statut</th><th></th></tr></thead>
+          <tbody>
+            {% for job in plan_jobs %}
+            <tr>
+              <td class="mono" style="font-size:11px;color:var(--text-muted)">{{ job.started_at }}</td>
+              <td class="mono" style="font-size:12px">{{ job.vm_id or "—" }}</td>
+              <td><span class="bdg {{ job.status }}">{{ {"success": "Réussi", "error": "Erreur", "running": "En cours"}[job.status] }}</span></td>
+              <td><button type="button" class="btn sm ghost" hx-get="/admin/jobs/{{ job.id }}/log" hx-target="#plan-job-log-panel" hx-swap="innerHTML">Voir</button></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="hint">Aucune exécution pour ce plan pour l'instant.</p>
+        {% endif %}
+      </div>
+    </div>
   </div>
-</div>
 
-<div class="card">
-  <div class="phdr"><span class="stitle" style="font-size:14px">VMs et points de sauvegarde</span></div>
-  <div class="pbody">
-    {% if last_full_snapshot %}
-    <p class="hint" style="margin-bottom:10px">Dernier point de restauration complet (toutes les VMs disponibles) : <strong>{{ last_full_snapshot }}</strong></p>
-    {% else %}
-    <p class="hint" style="margin-bottom:10px">Aucun point de restauration complet pour l'instant — au moins une VM sélectionnée n'a pas encore de snapshot réussi.</p>
-    {% endif %}
-
-    {% if vm_rows %}
-    <table>
-      <thead><tr><th>VM</th><th>EIP après bascule</th><th>Points de sauvegarde disponibles</th><th>Dernier snapshot</th><th>Statut</th></tr></thead>
-      <tbody>
-        {% for row in vm_rows %}
-        <tr>
-          <td class="mono">{{ row.vm_id }}</td>
-          <td class="mono" style="font-size:12px">
-            {% if row.eip %}
-              {{ row.eip }}
-              <span style="color:var(--text-muted);font-family:inherit">
-                ({{ "identique à la prod" if plan.target_type == "meme_region" else "nouvelle EIP" }})
-              </span>
-            {% else %}
-            <span style="color:var(--text-muted)">—</span>
-            {% endif %}
-          </td>
-          <td>{{ row.backup_points }}</td>
-          <td class="mono" style="font-size:11px;color:var(--text-muted)">{{ row.last_snapshot or "—" }}</td>
-          <td>
-            {% if row.status == "defaillant" %}
-            <span class="bdg error">Défaillant</span>
-            {% elif row.status == "desactive" %}
-            <span class="bdg inactif">Désactivé</span>
-            {% else %}
-            <span class="bdg actif">Activé (et fonctionnel)</span>
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-    <p class="empty">Aucune VM sélectionnée pour ce plan.</p>
-    {% endif %}
+  <div class="plan-log">
+    <div class="card">
+      <div class="phdr"><span class="stitle" style="font-size:14px">Journal</span></div>
+      <div class="pbody" id="plan-job-log-panel">
+        {% with job = latest_plan_job, logs = latest_plan_job_logs %}{% include "admin/_job_log.html" %}{% endwith %}
+      </div>
+    </div>
   </div>
 </div>
 {% endblock %}

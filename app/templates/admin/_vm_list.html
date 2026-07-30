@@ -5,15 +5,33 @@
 {% elif vms|length == 0 %}
 <p class="empty">Aucune VM trouvée sur ce compte/région.</p>
 {% else %}
-<ul class="checkbox-list">
+{% if images_error %}
+<p class="hint">OMI du compte cible non disponibles ({{ images_error }}) — l'OMI de chaque VM cible restera celle de la VM source.</p>
+{% endif %}
+<div class="vm-grid">
   {% for vm in vms %}
-  <li>
+  {% set vm_name = vm.Tags | selectattr("Key", "equalto", "Name") | map(attribute="Value") | first | default(vm.VmId) %}
+  {% set override = image_overrides.get(vm.VmId) if image_overrides else None %}
+  <div class="vm-card">
     <label class="checkbox">
       <input type="checkbox" name="selected_vms" value="{{ vm.VmId }}" {{ "checked" if vm.VmId in (selected_ids or []) else "" }}>
-      {{ vm.VmId }} — {{ vm.Tags | selectattr("Key", "equalto", "Name") | map(attribute="Value") | first | default(vm.VmId) }}
-      ({{ vm.VmState }})
+      <span>{{ vm.VmId }} — {{ vm_name }} ({{ vm.VmState }})</span>
     </label>
-  </li>
+    {% if images %}
+    <label>
+      <span class="lbl">OMI cible</span>
+      <select name="vm_image__{{ vm.VmId }}" class="sel">
+        <option value="{{ vm.ImageId }}" {{ "selected" if (not override) or override == vm.ImageId else "" }}>Identique à la source ({{ vm.ImageId }})</option>
+        {% for img in images if img.ImageId != vm.ImageId %}
+        <option value="{{ img.ImageId }}" {{ "selected" if override == img.ImageId else "" }}>{{ img.ImageId }}{% if img.ImageName %} — {{ img.ImageName }}{% endif %}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% elif override %}
+    <input type="hidden" name="vm_image__{{ vm.VmId }}" value="{{ override }}">
+    <p class="hint">OMI cible : {{ override }} (renseigne les AK/SK cible pour la modifier)</p>
+    {% endif %}
+  </div>
   {% endfor %}
-</ul>
+</div>
 {% endif %}

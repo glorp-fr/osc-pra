@@ -1,12 +1,13 @@
 {% extends "base.html" %}
 {% import "_macros.html" as macros %}
+{% block content_class %} wide{% endblock %}
 {% block content %}
 <div class="stitle" style="margin-bottom:16px">Paramètres globaux</div>
 {% if saved %}<div class="ok-banner" style="margin-bottom:16px">Paramètres enregistrés.</div>{% endif %}
 {% if message %}<div class="ok-banner" style="margin-bottom:16px">{{ message }}</div>{% endif %}
 {% if cron_error %}<div class="err-banner" style="margin-bottom:16px">Crontab non synchronisé : {{ cron_error }}</div>{% endif %}
 
-<form method="post" action="/admin/parametres">
+<form method="post" action="/admin/parametres" class="form-3col">
   <fieldset>
     <legend>Messagerie</legend>
     <label>Email source <input type="email" name="mail_from" value="{{ settings.mail_from if settings else '' }}"></label>

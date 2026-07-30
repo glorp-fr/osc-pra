@@ -4,6 +4,7 @@ ressources réseau) et la restauration des BSU sur la VM cible (voir
 restore.py)."""
 from app import octl
 from app.crypto import decrypt
+from app.db import get_connection
 
 # Ressources volontairement exclues du resync : reprises seulement à la
 # bascule vers le PRA (voir restore.py), pas à chaque cycle de
@@ -84,7 +85,8 @@ def _sync_subnets(plan, source_ak, source_sk, target_ak, target_sk, target_regio
             continue
         new_subnet = octl.create_subnet(
             target_ak, target_sk, target_region, target_vpc_id,
-            subnet["IpRange"], subnet["SubregionName"], name,
+            subnet["IpRange"], plan["target_subregion"], name,
+            tags=subnet.get("Tags", []),
         )
         existing_by_name[name] = {**new_subnet, "Tags": [{"Key": "Name", "Value": name}]}
         created += 1
@@ -108,7 +110,10 @@ def _sync_security_groups(plan, source_ak, source_sk, target_ak, target_sk, targ
         name = sg.get("SecurityGroupName")
         if not name or name in existing_by_name:
             continue
-        new_sg = octl.create_security_group(target_ak, target_sk, target_region, target_vpc_id, name, sg.get("Description", ""))
+        new_sg = octl.create_security_group(
+            target_ak, target_sk, target_region, target_vpc_id, name, sg.get("Description", ""),
+            tags=sg.get("Tags", []),
+        )
         existing_by_name[name] = new_sg
         created += 1
 
@@ -281,7 +286,9 @@ def _sync_route_tables(
                 source_subnet_id = _route_table_subnet_id(rt)
                 source_subnet_name = source_subnet_names_by_id.get(source_subnet_id)
                 target_subnet = target_subnets_by_name.get(source_subnet_name) if source_subnet_name else None
-                new_rt = octl.create_route_table(target_ak, target_sk, target_region, target_vpc_id, name)
+                new_rt = octl.create_route_table(
+                    target_ak, target_sk, target_region, target_vpc_id, name, tags=rt.get("Tags", []),
+                )
                 target_rt_id = new_rt.get("RouteTableId")
                 if target_subnet is not None:
                     octl.link_route_table(target_ak, target_sk, target_region, target_rt_id, target_subnet.get("SubnetId"))
@@ -363,4 +370,131 @@ def sync_target_network(plan, target_ak: str, target_sk: str, target_region: str
         "route_tables_total": route_tables_total,
         "routes_created": routes_created,
         "routes_skipped": routes_skipped,
+    }
+
+
+def delete_target_vpc(plan, target_ak: str, target_sk: str, target_region: str, target_vpc_id: str) -> dict:
+    """Suppression best-effort d'un ancien VPC cible et de tout ce qu'il
+    contient, utilisée quand on recrée un VPC cible pour un plan qui en avait
+    déjà un (voir admin.plan_create_target_vpc). Chaque catégorie de
+    ressource est traitée indépendamment : une erreur sur l'une d'elles
+    n'empêche pas d'essayer les suivantes, tout est remonté dans `errors`
+    plutôt que de lever OctlError, pour laisser la création du nouveau VPC se
+    poursuivre même en cas de nettoyage partiel."""
+    errors: list[str] = []
+
+    conn = get_connection()
+    targets = conn.execute(
+        "SELECT source_vm_id, target_vm_id FROM vm_targets WHERE plan_id = ?", (plan["id"],)
+    ).fetchall()
+    conn.close()
+
+    vms_deleted = 0
+    for row in targets:
+        target_vm_id = row["target_vm_id"]
+        try:
+            vm = octl.get_vm(target_ak, target_sk, target_region, target_vm_id)
+            volume_ids = [
+                bdm["Bsu"]["VolumeId"] for bdm in (vm.get("BlockDeviceMappings", []) if vm else [])
+                if bdm.get("Bsu", {}).get("VolumeId")
+            ]
+            octl.delete_vm(target_ak, target_sk, target_region, target_vm_id)
+            for volume_id in volume_ids:
+                try:
+                    octl.delete_volume(target_ak, target_sk, target_region, volume_id)
+                except octl.OctlError:
+                    pass  # volume racine probablement déjà supprimé (DeleteOnVmDeletion)
+            vms_deleted += 1
+        except octl.OctlError as exc:
+            errors.append(f"VM cible {target_vm_id} : {exc}")
+
+    sgs_deleted = 0
+    try:
+        sgs = [
+            g for g in octl.list_security_groups(target_ak, target_sk, target_region)
+            if g.get("NetId") == target_vpc_id and g.get("SecurityGroupName") != "default"
+        ]
+        for sg in sgs:
+            try:
+                octl.delete_security_group(target_ak, target_sk, target_region, sg.get("SecurityGroupId"))
+                sgs_deleted += 1
+            except octl.OctlError as exc:
+                errors.append(f"Security group {sg.get('SecurityGroupName')} : {exc}")
+    except octl.OctlError as exc:
+        errors.append(f"Liste des security groups cible : {exc}")
+
+    route_tables_deleted = 0
+    try:
+        rts = [
+            rt for rt in octl.list_route_tables(target_ak, target_sk, target_region)
+            if rt.get("NetId") == target_vpc_id
+        ]
+        for rt in rts:
+            if _is_main_route_table(rt):
+                continue
+            rt_id = rt.get("RouteTableId")
+            for link in rt.get("LinkRouteTables", []):
+                link_id = link.get("LinkRouteTableId")
+                if not link_id:
+                    continue
+                try:
+                    octl.unlink_route_table(target_ak, target_sk, target_region, link_id)
+                except octl.OctlError as exc:
+                    errors.append(f"Dissociation route table {rt_id} : {exc}")
+            try:
+                octl.delete_route_table(target_ak, target_sk, target_region, rt_id)
+                route_tables_deleted += 1
+            except octl.OctlError as exc:
+                errors.append(f"Route table {rt_id} : {exc}")
+    except octl.OctlError as exc:
+        errors.append(f"Liste des route tables cible : {exc}")
+
+    internet_service_deleted = False
+    try:
+        services = [
+            i for i in octl.list_internet_services(target_ak, target_sk, target_region)
+            if i.get("NetId") == target_vpc_id
+        ]
+        for service in services:
+            is_id = service.get("InternetServiceId")
+            try:
+                octl.unlink_internet_service(target_ak, target_sk, target_region, is_id, target_vpc_id)
+                octl.delete_internet_service(target_ak, target_sk, target_region, is_id)
+                internet_service_deleted = True
+            except octl.OctlError as exc:
+                errors.append(f"Internet service {is_id} : {exc}")
+    except octl.OctlError as exc:
+        errors.append(f"Liste des internet services cible : {exc}")
+
+    subnets_deleted = 0
+    try:
+        subnets = [
+            s for s in octl.list_subnets(target_ak, target_sk, target_region)
+            if s.get("NetId") == target_vpc_id
+        ]
+        for subnet in subnets:
+            try:
+                octl.delete_subnet(target_ak, target_sk, target_region, subnet.get("SubnetId"))
+                subnets_deleted += 1
+            except octl.OctlError as exc:
+                errors.append(f"Subnet {subnet.get('SubnetId')} : {exc}")
+    except octl.OctlError as exc:
+        errors.append(f"Liste des subnets cible : {exc}")
+
+    vpc_deleted = False
+    try:
+        octl.delete_net(target_ak, target_sk, target_region, target_vpc_id)
+        vpc_deleted = True
+    except octl.OctlError as exc:
+        errors.append(f"VPC {target_vpc_id} : {exc}")
+
+    return {
+        "vms_deleted": vms_deleted,
+        "vms_total": len(targets),
+        "sgs_deleted": sgs_deleted,
+        "route_tables_deleted": route_tables_deleted,
+        "internet_service_deleted": internet_service_deleted,
+        "subnets_deleted": subnets_deleted,
+        "vpc_deleted": vpc_deleted,
+        "errors": errors,
     }
