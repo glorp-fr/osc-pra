@@ -49,7 +49,7 @@ a{color:var(--os-blue)}
 .login-card{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:36px 40px;width:360px;box-shadow:0 8px 32px rgba(0,83,134,.08)}
 
 /* ── Card ── */
-.card{background:var(--panel);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:12px;margin-bottom:16px}
 .phdr{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--border)}
 .pbody{padding:16px}
 .stitle{font-size:16px;font-weight:700;color:var(--os-blue-dark);letter-spacing:-.01em;font-family:'Montserrat',sans-serif}
