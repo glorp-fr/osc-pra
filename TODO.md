@@ -2,6 +2,15 @@
 
 Chantiers identifiés, à prioriser.
 
+## Gestion d'un PRA multi VPC
+
+- Aujourd'hui, un plan de reprise réplique un seul VPC source vers un seul
+  VPC cible. Permettre à un plan (ou à un regroupement de plans) de couvrir
+  plusieurs VPC source en une seule bascule cohérente (ordre de démarrage
+  inter-VPC, EIP/NAT par VPC, vue d'ensemble multi-VPC sur le dashboard) —
+  à préciser (un plan = plusieurs VPC, ou un groupe de plans basculés
+  ensemble ?).
+
 ## Mise en place du reporting
 
 - Alerting par email sur les événements importants : job de snapshot/
