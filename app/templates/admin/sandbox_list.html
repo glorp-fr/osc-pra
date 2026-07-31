@@ -18,7 +18,7 @@
         {% for sandbox in sandboxes %}
         <tr>
           <td><a href="/admin/sandbox/{{ sandbox.id }}">{{ sandbox.plan_name }}</a></td>
-          <td class="mono" style="font-size:12px">{{ sandbox.vpc_id or "—" }}</td>
+          <td class="mono" style="font-size:12px">{{ (sandbox.vpc_ids | join(", ")) if sandbox.vpc_ids else (sandbox.vpc_id or "—") }}</td>
           <td>
             <span class="bdg {{ 'error' if sandbox.status == 'error' else ('running' if sandbox.status in ('creating', 'deleting') else ('actif' if sandbox.status == 'running' else 'inactif')) }}">
               {{ status_labels.get(sandbox.status, sandbox.status) }}

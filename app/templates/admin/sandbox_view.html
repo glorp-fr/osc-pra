@@ -40,7 +40,10 @@
 <div class="card">
   <div class="phdr"><span class="stitle" style="font-size:14px">VM du sandbox</span></div>
   <div class="pbody">
-    <p class="hint" style="margin-bottom:10px">VPC {{ sandbox.vpc_id or "—" }}, créé le {{ sandbox.created_at }} par {{ sandbox.created_by or "—" }}.</p>
+    <p class="hint" style="margin-bottom:10px">
+      VPC {% if sandbox_vpcs %}{% for sv in sandbox_vpcs %}{{ sv.vpc_id }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}{{ sandbox.vpc_id or "—" }}{% endif %},
+      créé le {{ sandbox.created_at }} par {{ sandbox.created_by or "—" }}.
+    </p>
     {% if vm_targets %}
     <table>
       <thead><tr><th>VM source</th><th>VM sandbox</th><th>EIP</th><th>Snapshot restauré</th></tr></thead>
@@ -59,8 +62,9 @@
     {% else %}
     <p class="empty">Aucune VM restaurée pour le moment.</p>
     {% endif %}
-    {% if state.nat and state.nat.public_ip %}
-    <p class="hint" style="margin-top:10px">NAT Gateway du sandbox : <span class="mono">{{ state.nat.public_ip }}</span></p>
+    {% set nats = state.nats or ([state.nat] if state.nat else []) %}
+    {% if nats %}
+    <p class="hint" style="margin-top:10px">NAT Gateway du sandbox : <span class="mono">{% for nat in nats %}{{ nat.public_ip }}{% if not loop.last %}, {% endif %}{% endfor %}</span></p>
     {% endif %}
   </div>
 </div>

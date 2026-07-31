@@ -13,6 +13,13 @@ jamais de modification côté source. Le plan passe en `failover_status =
 'test_en_cours'` (sync automatique suspendue, voir scripts/run_plan.py) —
 à terminer explicitement via scripts/end_test.py.
 
+Un plan peut avoir plusieurs VPC (voir app/plan_vpcs.py) : le démarrage des
+VM et l'attribution des EIP sont déjà VPC-agnostiques (opèrent sur l'union
+des VM de tous les VPC du plan, les ID de VM étant uniques sur le compte),
+seule la NAT Gateway est propre à chaque VPC — assign_nat est donc appelée
+une fois par VPC du plan, et `failover_state.nats` est une liste (une entrée
+par VPC) plutôt qu'un objet unique.
+
 Ne fait rien pour les VM sans VM cible déjà répliquée (vm_targets) : la
 bascule agit sur ce qui a déjà été répliqué par la sync normale, elle ne
 crée pas de nouvelle VM cible.
@@ -28,6 +35,7 @@ from app import failover, octl  # noqa: E402
 from app.crypto import decrypt  # noqa: E402
 from app.db import get_connection  # noqa: E402
 from app.jobs import finish_job, log_step, start_job  # noqa: E402
+from app.plan_vpcs import list_plan_vpcs, selected_vms_of  # noqa: E402
 from app.target import resolve_target_credentials  # noqa: E402
 
 
@@ -47,8 +55,10 @@ def main(plan_id: int, mode: str) -> None:
     if not octl.is_available():
         finish_job(job_id, "error", "octl n'est pas installé sur ce serveur.")
         return
-    if not plan["target_vpc_id"]:
-        finish_job(job_id, "error", "VPC cible non créé pour ce plan.")
+
+    plan_vpcs = [pv for pv in list_plan_vpcs(plan_id) if pv["target_vpc_id"]]
+    if not plan_vpcs:
+        finish_job(job_id, "error", "Aucun VPC cible créé pour ce plan.")
         return
 
     target_ak, target_sk, target_region, target_error = resolve_target_credentials(plan)
@@ -57,7 +67,7 @@ def main(plan_id: int, mode: str) -> None:
         return
 
     source_sk = decrypt(plan["source_sk_encrypted"]) if plan["source_sk_encrypted"] else ""
-    selected_vms = json.loads(plan["selected_vms"] or "[]")
+    selected_vms = [vm_id for pv in plan_vpcs for vm_id in selected_vms_of(pv)]
 
     conn = get_connection()
     vm_target_rows = conn.execute(
@@ -71,7 +81,7 @@ def main(plan_id: int, mode: str) -> None:
         finish_job(job_id, "error", "Aucune VM cible déjà répliquée pour ce plan — rien à basculer.")
         return
 
-    log_step(job_id, f"{'Activation PRA' if mode == 'activation' else 'Test de PRA'} — {len(replicated_vms)} VM(s).")
+    log_step(job_id, f"{'Activation PRA' if mode == 'activation' else 'Test de PRA'} — {len(replicated_vms)} VM(s) sur {len(plan_vpcs)} VPC.")
 
     try:
         order = failover.resolve_start_order(plan, replicated_vms)
@@ -82,17 +92,21 @@ def main(plan_id: int, mode: str) -> None:
             plan["source_ak"], source_sk, plan["source_region"],
             replicated_vms, target_vm_id_by_source, mode, job_id,
         )
-        nat = failover.assign_nat(
-            plan["source_ak"], source_sk, plan["source_region"], plan["source_vpc_id"],
-            target_ak, target_sk, target_region, plan["target_vpc_id"], mode, job_id,
-        )
+        nats = []
+        for plan_vpc in plan_vpcs:
+            nat = failover.assign_nat(
+                plan["source_ak"], source_sk, plan["source_region"], plan_vpc["source_vpc_id"],
+                target_ak, target_sk, target_region, plan_vpc["target_vpc_id"], mode, job_id,
+            )
+            if nat:
+                nats.append({"plan_vpc_id": plan_vpc["id"], "target_vpc_id": plan_vpc["target_vpc_id"], **nat})
     except octl.OctlError as exc:
         log_step(job_id, f"Échec de la bascule : {exc}", level="error")
         finish_job(job_id, "error", str(exc))
         return
 
     state = {
-        "type": mode, "started_at": datetime.now(timezone.utc).isoformat(), "vm_eips": vm_eips, "nat": nat,
+        "type": mode, "started_at": datetime.now(timezone.utc).isoformat(), "vm_eips": vm_eips, "nats": nats,
     }
     new_status = "bascule" if mode == "activation" else "test_en_cours"
     conn = get_connection()
@@ -109,7 +123,7 @@ def main(plan_id: int, mode: str) -> None:
     conn.commit()
     conn.close()
 
-    finish_job(job_id, "success", f"{'Activation' if mode == 'activation' else 'Test'} PRA terminé(e) : {len(order)} VM(s) traitée(s).")
+    finish_job(job_id, "success", f"{'Activation' if mode == 'activation' else 'Test'} PRA terminé(e) : {len(order)} VM(s) traitée(s) sur {len(plan_vpcs)} VPC.")
 
 
 if __name__ == "__main__":

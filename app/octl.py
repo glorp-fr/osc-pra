@@ -264,12 +264,18 @@ def delete_route_table(ak: str, sk: str, region: str, route_table_id: str) -> No
 
 def create_route(
     ak: str, sk: str, region: str, route_table_id: str, destination_ip_range: str,
-    gateway_id: str | None = None, nat_service_id: str | None = None,
+    gateway_id: str | None = None, nat_service_id: str | None = None, net_peering_id: str | None = None,
 ) -> None:
-    """`gateway_id` (internet service, resync réseau normal) et
-    `nat_service_id` (NAT Gateway, bascule PRA uniquement — voir
-    app/failover.py) sont mutuellement exclusifs côté API."""
-    target_flag, target_value = ("--NatServiceId", nat_service_id) if nat_service_id else ("--GatewayId", gateway_id)
+    """`gateway_id` (internet service, resync réseau normal), `nat_service_id`
+    (NAT Gateway, bascule PRA uniquement — voir app/failover.py) et
+    `net_peering_id` (Net peering entre VPC du plan — voir
+    app/target.py::sync_net_peerings) sont mutuellement exclusifs côté API."""
+    if nat_service_id:
+        target_flag, target_value = "--NatServiceId", nat_service_id
+    elif net_peering_id:
+        target_flag, target_value = "--NetPeeringId", net_peering_id
+    else:
+        target_flag, target_value = "--GatewayId", gateway_id
     _run(
         "CreateRoute", ak, sk, region,
         "--RouteTableId", route_table_id, "--DestinationIpRange", destination_ip_range, target_flag, target_value,
@@ -366,6 +372,55 @@ def delete_nat_service(ak: str, sk: str, region: str, nat_service_id: str) -> No
     pas les routes qui pointent vers elle dans les tables de routage — à
     recréer/patcher séparément (voir app/failover.py::assign_nat)."""
     _run("DeleteNatService", ak, sk, region, "--NatServiceId", nat_service_id)
+
+
+def create_net_peering(ak: str, sk: str, region: str, source_net_id: str, accepter_net_id: str) -> dict:
+    """Demande un Net peering entre deux VPC du même compte cible — reste en
+    `pending-acceptance` jusqu'à accept_net_peering (voir
+    app/target.py::sync_net_peerings). Syntaxe vérifiée via `octl iaas api
+    CreateNetPeering --help` uniquement, jamais exécutée contre un compte
+    Outscale réel (même statut expérimental que les appels EIP/NAT, voir
+    CLAUDE.MD)."""
+    result = _run("CreateNetPeering", ak, sk, region, "--SourceNetId", source_net_id, "--AccepterNetId", accepter_net_id)
+    if isinstance(result, dict):
+        return result
+    if isinstance(result, list) and result:
+        return result[0]
+    raise OctlError("CreateNetPeering n'a renvoyé aucun Net peering.")
+
+
+def accept_net_peering(ak: str, sk: str, region: str, net_peering_id: str) -> dict:
+    result = _run("AcceptNetPeering", ak, sk, region, "--NetPeeringId", net_peering_id)
+    if isinstance(result, dict):
+        return result
+    if isinstance(result, list) and result:
+        return result[0]
+    raise OctlError("AcceptNetPeering n'a renvoyé aucun Net peering.")
+
+
+def list_net_peerings(ak: str, sk: str, region: str, net_ids: list[str] | None = None, state_names: list[str] | None = None) -> list:
+    """`net_ids`, s'il est fourni, filtre sur les Net peerings dont la source
+    OU l'accepteur est l'un de ces VPC (deux filtres séparés — l'API ne
+    propose pas de OR entre les deux, donc deux appels fusionnés par
+    NetPeeringId)."""
+    args = ["--Filters.StateNames", ",".join(state_names)] if state_names else []
+    if not net_ids:
+        result = _run("ReadNetPeerings", ak, sk, region, *args)
+        return result if isinstance(result, list) else result.get("NetPeerings", [])
+
+    by_id = {}
+    for filter_flag in ("--Filters.SourceNetNetIds", "--Filters.AccepterNetNetIds"):
+        result = _run("ReadNetPeerings", ak, sk, region, filter_flag, ",".join(net_ids), *args)
+        peerings = result if isinstance(result, list) else result.get("NetPeerings", [])
+        for peering in peerings:
+            peering_id = peering.get("NetPeeringId")
+            if peering_id:
+                by_id[peering_id] = peering
+    return list(by_id.values())
+
+
+def delete_net_peering(ak: str, sk: str, region: str, net_peering_id: str) -> None:
+    _run("DeleteNetPeering", ak, sk, region, "--NetPeeringId", net_peering_id)
 
 
 def create_snapshot(ak: str, sk: str, region: str, volume_id: str, description: str) -> dict:

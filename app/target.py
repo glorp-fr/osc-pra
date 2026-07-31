@@ -1,7 +1,12 @@
 """Résolution des identifiants du compte cible et utilitaires partagés entre
 la création du VPC cible, la page Visualiser (resynchronisation des
 ressources réseau) et la restauration des BSU sur la VM cible (voir
-restore.py)."""
+restore.py). Un plan peut porter plusieurs VPC (voir app/plan_vpcs.py) :
+les fonctions ci-dessous opèrent sur UN VPC (source_vpc_id/target_vpc_id
+explicites), appelées une fois par VPC du plan par l'appelant
+(scripts/run_plan.py, scripts/run_sandbox.py, app/routers/admin.py) —
+seule sync_net_peerings est plan-level (elle a besoin de tous les VPC
+cible déjà créés pour apparier les paires)."""
 from app import octl
 from app.crypto import decrypt
 from app.db import get_connection
@@ -12,9 +17,12 @@ from app.db import get_connection
 #   - EIP (PublicIp) : une VM avec IP publique récupère la sienne (même
 #     région) ou une nouvelle (autre région) au moment de la bascule.
 #   - NAT Gateway (NatService) : dépend d'une EIP, créée au même moment.
-# En conséquence, les routes qui pointent vers une NAT Gateway, une
-# instance NAT (VmId/NicId) ou un Net peering / une passerelle VPN (VGW)
-# ne sont pas non plus répliquées ici (ressources elles-mêmes hors scope).
+# En conséquence, les routes qui pointent vers une NAT Gateway ou une
+# instance NAT (VmId/NicId) ne sont pas non plus répliquées ici (ressources
+# elles-mêmes hors scope). Les Net Peering, eux, SONT répliqués (voir
+# sync_net_peerings et le paramètre peering_target_id_by_source_id de
+# _sync_route_tables) — un plan à plusieurs VPC peut donc reprendre le
+# peering existant entre eux côté source.
 
 
 def resolve_target_credentials(plan) -> tuple[str, str, str, str | None]:
@@ -67,10 +75,10 @@ def _route_table_subnet_id(route_table: dict) -> str | None:
     return None
 
 
-def _sync_subnets(plan, source_ak, source_sk, target_ak, target_sk, target_region, target_vpc_id):
+def _sync_subnets(source_region, source_vpc_id, target_subregion, source_ak, source_sk, target_ak, target_sk, target_region, target_vpc_id):
     source_subnets = [
-        s for s in octl.list_subnets(source_ak, source_sk, plan["source_region"])
-        if s.get("NetId") == plan["source_vpc_id"]
+        s for s in octl.list_subnets(source_ak, source_sk, source_region)
+        if s.get("NetId") == source_vpc_id
     ]
     target_subnets = [
         s for s in octl.list_subnets(target_ak, target_sk, target_region)
@@ -85,7 +93,7 @@ def _sync_subnets(plan, source_ak, source_sk, target_ak, target_sk, target_regio
             continue
         new_subnet = octl.create_subnet(
             target_ak, target_sk, target_region, target_vpc_id,
-            subnet["IpRange"], plan["target_subregion"], name,
+            subnet["IpRange"], target_subregion, name,
             tags=subnet.get("Tags", []),
         )
         existing_by_name[name] = {**new_subnet, "Tags": [{"Key": "Name", "Value": name}]}
@@ -94,10 +102,10 @@ def _sync_subnets(plan, source_ak, source_sk, target_ak, target_sk, target_regio
     return source_subnets, existing_by_name, created
 
 
-def _sync_security_groups(plan, source_ak, source_sk, target_ak, target_sk, target_region, target_vpc_id):
+def _sync_security_groups(source_region, source_vpc_id, source_ak, source_sk, target_ak, target_sk, target_region, target_vpc_id):
     source_sgs = [
-        g for g in octl.list_security_groups(source_ak, source_sk, plan["source_region"])
-        if g.get("NetId") == plan["source_vpc_id"] and g.get("SecurityGroupName") != "default"
+        g for g in octl.list_security_groups(source_ak, source_sk, source_region)
+        if g.get("NetId") == source_vpc_id and g.get("SecurityGroupName") != "default"
     ]
     target_sgs = [
         g for g in octl.list_security_groups(target_ak, target_sk, target_region)
@@ -206,9 +214,9 @@ def _sync_security_group_rules(target_ak, target_sk, target_region, source_sgs, 
     return created, total, skipped
 
 
-def _sync_internet_service(plan, source_ak, source_sk, target_ak, target_sk, target_region, target_vpc_id):
+def _sync_internet_service(source_region, source_vpc_id, source_ak, source_sk, target_ak, target_sk, target_region, target_vpc_id):
     source_has_is = any(
-        i.get("NetId") == plan["source_vpc_id"] for i in octl.list_internet_services(source_ak, source_sk, plan["source_region"])
+        i.get("NetId") == source_vpc_id for i in octl.list_internet_services(source_ak, source_sk, source_region)
     )
     if not source_has_is:
         return None, False
@@ -243,14 +251,15 @@ def _remap_gateway_id(gateway_id: str | None, target_internet_service_id: str | 
 
 
 def _sync_route_tables(
-    plan, source_ak, source_sk, target_ak, target_sk, target_region, target_vpc_id,
+    source_region, source_vpc_id, source_ak, source_sk, target_ak, target_sk, target_region, target_vpc_id,
     source_subnets, target_subnets_by_name, target_internet_service_id,
+    peering_target_id_by_source_id=None,
 ):
     source_subnet_names_by_id = {s.get("SubnetId"): tag_name(s, s.get("SubnetId")) for s in source_subnets}
 
     source_rts = [
-        rt for rt in octl.list_route_tables(source_ak, source_sk, plan["source_region"])
-        if rt.get("NetId") == plan["source_vpc_id"]
+        rt for rt in octl.list_route_tables(source_ak, source_sk, source_region)
+        if rt.get("NetId") == source_vpc_id
     ]
     target_rts = [
         rt for rt in octl.list_route_tables(target_ak, target_sk, target_region)
@@ -305,7 +314,23 @@ def _sync_route_tables(
 
         for route in rt.get("Routes", []):
             destination = route.get("DestinationIpRange")
-            if route.get("NatServiceId") or route.get("NetPeeringId") or route.get("VmId") or route.get("NicId"):
+
+            net_peering_id = route.get("NetPeeringId")
+            if net_peering_id:
+                target_peering_id = (peering_target_id_by_source_id or {}).get(net_peering_id)
+                if target_peering_id is None:
+                    routes_skipped += 1
+                    continue
+                if destination in existing_destinations:
+                    continue
+                octl.create_route(
+                    target_ak, target_sk, target_region, target_rt_id, destination, net_peering_id=target_peering_id,
+                )
+                existing_destinations.add(destination)
+                routes_created += 1
+                continue
+
+            if route.get("NatServiceId") or route.get("VmId") or route.get("NicId"):
                 if route.get("GatewayId") != "local":
                     routes_skipped += 1
                 continue
@@ -327,34 +352,46 @@ def _sync_route_tables(
     return route_tables_created, route_tables_total, routes_created, routes_skipped
 
 
-def sync_target_network(plan, target_ak: str, target_sk: str, target_region: str, target_vpc_id: str) -> dict:
+def sync_target_network(
+    plan, target_ak: str, target_sk: str, target_region: str,
+    source_vpc_id: str, target_vpc_id: str, target_subregion: str,
+    peering_target_id_by_source_id: dict | None = None,
+) -> dict:
     """Recrée côté compte cible les subnets, security groups (avec leurs
     règles), l'internet service et les tables de routage du VPC source qui
     n'existent pas encore côté VPC cible (identifiés par leur tag/nom).
     EIP et NAT Gateway sont volontairement exclus (repris à la bascule, pas
-    au resync — voir restore.py). Les routes vers un Net peering ou une
-    passerelle VPN sont ignorées (ressources elles-mêmes non répliquées).
-    Utilisé à la fois juste après la création du VPC cible et depuis le
-    bouton de resynchronisation de la page Visualiser. Lève octl.OctlError
-    en cas d'échec d'un appel."""
+    au resync — voir restore.py). Les routes vers un Net peering sont
+    recréées si `peering_target_id_by_source_id` (retourné par
+    sync_net_peerings, à appeler avant pour un plan à plusieurs VPC) fournit
+    la correspondance ; sinon (plan à un seul VPC, ou peering pas encore
+    créé côté cible) elles sont ignorées, comme les routes vers une
+    passerelle VPN (jamais répliquées, hors scope). `source_vpc_id`/
+    `target_vpc_id`/`target_subregion` sont ceux d'UN VPC du plan (voir
+    app/plan_vpcs.py) — appelée une fois par VPC par l'appelant. Utilisé à
+    la fois juste après la création du VPC cible et depuis le bouton de
+    resynchronisation de la page Visualiser. Lève octl.OctlError en cas
+    d'échec d'un appel."""
     source_ak = plan["source_ak"]
     source_sk = decrypt(plan["source_sk_encrypted"]) if plan["source_sk_encrypted"] else ""
+    source_region = plan["source_region"]
 
     _source_subnets, target_subnets_by_name, subnets_created = _sync_subnets(
-        plan, source_ak, source_sk, target_ak, target_sk, target_region, target_vpc_id
+        source_region, source_vpc_id, target_subregion, source_ak, source_sk, target_ak, target_sk, target_region, target_vpc_id
     )
     source_sgs, target_sgs_by_name, sgs_created = _sync_security_groups(
-        plan, source_ak, source_sk, target_ak, target_sk, target_region, target_vpc_id
+        source_region, source_vpc_id, source_ak, source_sk, target_ak, target_sk, target_region, target_vpc_id
     )
     sg_rules_created, sg_rules_total, sg_rules_skipped = _sync_security_group_rules(
         target_ak, target_sk, target_region, source_sgs, target_sgs_by_name
     )
     target_internet_service_id, internet_service_created = _sync_internet_service(
-        plan, source_ak, source_sk, target_ak, target_sk, target_region, target_vpc_id
+        source_region, source_vpc_id, source_ak, source_sk, target_ak, target_sk, target_region, target_vpc_id
     )
     route_tables_created, route_tables_total, routes_created, routes_skipped = _sync_route_tables(
-        plan, source_ak, source_sk, target_ak, target_sk, target_region, target_vpc_id,
+        source_region, source_vpc_id, source_ak, source_sk, target_ak, target_sk, target_region, target_vpc_id,
         _source_subnets, target_subnets_by_name, target_internet_service_id,
+        peering_target_id_by_source_id,
     )
 
     return {
@@ -373,15 +410,80 @@ def sync_target_network(plan, target_ak: str, target_sk: str, target_region: str
     }
 
 
+def sync_net_peerings(plan, plan_vpcs: list, target_ak: str, target_sk: str, target_region: str) -> dict:
+    """Découvre les Net Peering actifs entre les VPC source du plan (compte
+    source, jamais modifié) et recrée l'équivalent entre les VPC cible
+    correspondants (détection automatique, pas de sélection manuelle — voir
+    CLAUDE.MD, section « Plans multi-VPC »). Idempotent : une paire de VPC
+    cible déjà peerée n'est pas recréée. À appeler avant sync_target_network
+    (une fois par plan, pas par VPC) pour que les routes vers ces peerings
+    soient recréées dans la même passe de resynchronisation — voir le
+    paramètre peering_target_id_by_source_id de sync_target_network. Lève
+    octl.OctlError en cas d'échec d'un appel. Retourne {NetPeeringId source:
+    NetPeeringId cible}."""
+    vpcs_with_target = [pv for pv in plan_vpcs if pv["source_vpc_id"] and pv["target_vpc_id"]]
+    if len(vpcs_with_target) < 2:
+        return {}
+
+    source_ak = plan["source_ak"]
+    source_sk = decrypt(plan["source_sk_encrypted"]) if plan["source_sk_encrypted"] else ""
+    source_to_target = {pv["source_vpc_id"]: pv["target_vpc_id"] for pv in vpcs_with_target}
+
+    source_peerings = octl.list_net_peerings(
+        source_ak, source_sk, plan["source_region"],
+        net_ids=list(source_to_target), state_names=["active", "pending-acceptance"],
+    )
+    relevant = []
+    for peering in source_peerings:
+        vpc_a = (peering.get("SourceNet") or {}).get("NetId")
+        vpc_b = (peering.get("AccepterNet") or {}).get("NetId")
+        if vpc_a in source_to_target and vpc_b in source_to_target and vpc_a != vpc_b:
+            relevant.append((peering.get("NetPeeringId"), vpc_a, vpc_b))
+    if not relevant:
+        return {}
+
+    target_peerings = octl.list_net_peerings(
+        target_ak, target_sk, target_region,
+        net_ids=list(source_to_target.values()), state_names=["active", "pending-acceptance"],
+    )
+    target_id_by_pair = {}
+    for peering in target_peerings:
+        vpc_a = (peering.get("SourceNet") or {}).get("NetId")
+        vpc_b = (peering.get("AccepterNet") or {}).get("NetId")
+        if vpc_a and vpc_b:
+            target_id_by_pair[frozenset({vpc_a, vpc_b})] = peering.get("NetPeeringId")
+
+    source_peering_id_to_target_id = {}
+    for source_peering_id, vpc_a, vpc_b in relevant:
+        target_pair = frozenset({source_to_target[vpc_a], source_to_target[vpc_b]})
+        target_peering_id = target_id_by_pair.get(target_pair)
+        if target_peering_id is None:
+            target_a, target_b = tuple(target_pair)
+            new_peering = octl.create_net_peering(target_ak, target_sk, target_region, target_a, target_b)
+            target_peering_id = new_peering.get("NetPeeringId")
+            octl.accept_net_peering(target_ak, target_sk, target_region, target_peering_id)
+            target_id_by_pair[target_pair] = target_peering_id
+        source_peering_id_to_target_id[source_peering_id] = target_peering_id
+
+    return source_peering_id_to_target_id
+
+
 def delete_target_vpc(
-    plan, target_ak: str, target_sk: str, target_region: str, target_vpc_id: str, sandbox_id: int | None = None,
+    plan, target_ak: str, target_sk: str, target_region: str, target_vpc_id: str,
+    sandbox_id: int | None = None, vm_ids: list[str] | None = None,
 ) -> dict:
     """Suppression best-effort d'un VPC cible et de tout ce qu'il contient.
     Utilisée quand on recrée un VPC cible pour un plan qui en avait déjà un
     (voir admin.plan_create_target_vpc), et par scripts/run_sandbox.py
     (action `delete`, avec `sandbox_id` fourni — lit alors le mapping VM
-    depuis `sandbox_vm_targets` plutôt que `vm_targets`). Chaque catégorie
-    de ressource est traitée indépendamment : une erreur sur l'une d'elles
+    depuis `sandbox_vm_targets` plutôt que `vm_targets`). `vm_ids`, s'il est
+    fourni (source_vm_id), restreint le mapping VM à ces VM — nécessaire
+    pour un plan à plusieurs VPC : `vm_targets` est partagé par tout le plan
+    (pas par VPC), donc sans ce filtre on essaierait de supprimer les VM des
+    AUTRES VPC du même plan. Les autres catégories de ressources
+    (subnets/SG/route tables/internet service/VPC) sont déjà scopées par
+    `target_vpc_id`, pas besoin de filtre pour elles. Chaque catégorie de
+    ressource est traitée indépendamment : une erreur sur l'une d'elles
     n'empêche pas d'essayer les suivantes, tout est remonté dans `errors`
     plutôt que de lever OctlError, pour laisser l'appelant poursuivre même
     en cas de nettoyage partiel."""
@@ -389,13 +491,18 @@ def delete_target_vpc(
 
     conn = get_connection()
     if sandbox_id is not None:
-        targets = conn.execute(
-            "SELECT source_vm_id, target_vm_id FROM sandbox_vm_targets WHERE sandbox_id = ?", (sandbox_id,)
-        ).fetchall()
+        query = "SELECT source_vm_id, target_vm_id FROM sandbox_vm_targets WHERE sandbox_id = ?"
+        params = [sandbox_id]
     else:
-        targets = conn.execute(
-            "SELECT source_vm_id, target_vm_id FROM vm_targets WHERE plan_id = ?", (plan["id"],)
-        ).fetchall()
+        query = "SELECT source_vm_id, target_vm_id FROM vm_targets WHERE plan_id = ?"
+        params = [plan["id"]]
+    if vm_ids is not None and not vm_ids:
+        targets = []
+    else:
+        if vm_ids is not None:
+            query += f" AND source_vm_id IN ({','.join('?' * len(vm_ids))})"
+            params.extend(vm_ids)
+        targets = conn.execute(query, params).fetchall()
     conn.close()
 
     vms_deleted = 0

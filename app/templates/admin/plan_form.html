@@ -6,12 +6,11 @@
 <h4>Général / AK/SK source</h4>
 <p>Nom du plan, puis l'AK/SK et la région du compte source. Le bouton <strong>Tester l'AK/SK</strong> vérifie la clé et affiche sa date d'expiration.</p>
 <h4>Cible de réplication</h4>
-<p><strong>Même région</strong> : la VM cible est créée sur le même compte, dans un VPC dédié (« VPC de PRA »). <strong>Autre région</strong> : nécessite un compte cible distinct (AK/SK, région) et un bucket S3 de synchro pour l'export/import des snapshots (non implémenté à ce jour).</p>
-<p>La case <strong>Mise à jour du VPC cible automatique</strong> (activée par défaut) reconstruit à chaque synchronisation les objets manquants côté cible (subnets, security groups, internet service, tables de routage) — désactive-la si tu préfères ne resynchroniser que manuellement depuis la page Visualiser du plan.</p>
-<h4>VPC source / VPC cible</h4>
-<p><strong>VPC source</strong> : scanne les VPC du compte source et sélectionne celui à répliquer. <strong>VPC cible</strong> : crée le VPC de PRA (même plage IP) sur le compte cible — n'apparaît qu'une fois le plan enregistré une première fois.</p>
-<h4>VMs à répliquer</h4>
-<p>Scanne les VMs du VPC source sélectionné et coche celles à inclure dans le plan. L'<strong>ordre de démarrage à la bascule</strong> (optionnel) contrôle dans quel ordre les VM cible démarrent lors d'une Activation ou d'un Test de PRA — la plus petite valeur démarre en premier ; les VM sans ordre démarrent en dernier.</p>
+<p><strong>Même région</strong> : la VM cible est créée sur le même compte, dans un VPC dédié (« VPC de PRA ») par VPC source ajouté. <strong>Autre région</strong> : nécessite un compte cible distinct (AK/SK, région) et un bucket S3 de synchro pour l'export/import des snapshots (non implémenté à ce jour).</p>
+<p>La case <strong>Mise à jour du VPC cible automatique</strong> (activée par défaut) reconstruit à chaque synchronisation les objets manquants côté cible (subnets, security groups, internet service, tables de routage, Net Peering entre les VPC du plan) — désactive-la si tu préfères ne resynchroniser que manuellement depuis la page Visualiser du plan.</p>
+<h4>VPC du plan</h4>
+<p>Un plan peut répliquer <strong>plusieurs VPC source</strong> — clique sur <strong>Ajouter un VPC</strong> pour chacun. Pour chaque VPC : sélectionne le <strong>VPC source</strong> (scan du compte), choisis son <strong>AZ cible</strong> (propre à ce VPC), crée son <strong>VPC cible</strong>, puis scanne et coche les <strong>VMs</strong> à répliquer. Si plusieurs VPC du plan sont peerés côté source (Net Peering), le peering équivalent est recréé automatiquement côté cible à la création/synchronisation.</p>
+<p>L'<strong>ordre de démarrage à la bascule</strong> (optionnel, par VM) contrôle dans quel ordre les VM cible démarrent lors d'une Activation ou d'un Test de PRA, quel que soit leur VPC — la plus petite valeur démarre en premier ; les VM sans ordre démarrent en dernier.</p>
 <h4>Gestion des snapshots</h4>
 <p>Fréquence à laquelle les snapshots des disques source sont pris, et nombre de snapshots à conserver (les plus anciens sont purgés automatiquement).</p>
 {% endblock %}
@@ -26,7 +25,6 @@
 {% if error %}<div class="err-banner" style="margin-bottom:16px">{{ error }}</div>{% endif %}
 
 <form method="post" action="{{ '/admin/plans/' ~ plan.id ~ '/modifier' if plan else '/admin/plans/nouveau' }}" class="form-3col">
-  <input type="hidden" name="plan_id" value="{{ plan.id if plan else '' }}">
   <fieldset style="grid-column:1/-1">
     <legend>Général</legend>
     <label>Nom du plan <input type="text" name="name" required value="{{ plan.name if plan else '' }}"></label>
@@ -50,13 +48,11 @@
         <option value="autre_region" disabled {{ "selected" if plan and plan.target_type == "autre_region" else "" }}>Autre région (En cours de développement)</option>
       </select>
     </label>
-    <label>AZ cible <input type="text" name="target_subregion" placeholder="ex. eu-west-2a" value="{{ plan.target_subregion if plan else '' }}"></label>
-    <p class="hint">AZ dans laquelle sont créés les subnets et VMs cible (resynchronisation du VPC cible) — indépendante de l'AZ des subnets du VPC source.</p>
     <label class="checkbox">
       <input type="checkbox" name="auto_sync_target" value="1" {{ "checked" if not plan or plan.auto_sync_target }}>
       Mise à jour du VPC cible automatique
     </label>
-    <p class="hint">À chaque synchronisation, reconstruit les objets manquants sur le VPC cible (subnets, security groups, internet service, tables de routage) avant de répliquer les VMs.</p>
+    <p class="hint">À chaque synchronisation, reconstruit les objets manquants sur chaque VPC cible (subnets, security groups, internet service, tables de routage, Net Peering entre les VPC du plan) avant de répliquer les VMs.</p>
     <div id="cross-region-fields" style="display:{{ 'flex' if plan and plan.target_type == 'autre_region' else 'none' }};flex-direction:column;gap:10px">
       <label>AK cible <input type="text" name="target_ak" value="{{ plan.target_ak if plan else '' }}"></label>
       <label>SK cible <input type="password" name="target_sk" placeholder="{{ '••••••••' if plan and plan.target_sk_encrypted else '' }}"></label>
@@ -69,55 +65,6 @@
     </div>
   </fieldset>
 
-  <fieldset style="grid-column:1">
-    <legend>VPC source</legend>
-    {% if plan and plan.source_vpc_id %}
-    <p class="hint">VPC actuellement sélectionné : {{ plan.source_vpc_id }}</p>
-    {% endif %}
-    <button type="button" class="btn sm ghost icon" hx-post="/admin/plans/octl/scan-vpcs" hx-include="closest form" hx-target="#vpc-list" hx-swap="innerHTML" data-tooltip="Scanner les VPC" aria-label="Scanner les VPC">{{ macros.icon("search") }}</button>
-    <div id="vpc-list"><p class="hint">Renseigne l'AK, le SK et la région source ci-dessus puis clique sur « Scanner les VPC ».</p></div>
-    {% if plan %}
-    <button type="button" class="btn sm ghost icon" hx-post="/admin/plans/{{ plan.id }}/vpc-source" hx-include="closest form" hx-target="#vpc-source-status" hx-swap="innerHTML" data-tooltip="Appliquer" aria-label="Appliquer">{{ macros.icon("check") }}</button>
-    <div id="vpc-source-status"></div>
-    {% endif %}
-  </fieldset>
-
-  {% if plan %}
-  <fieldset style="grid-column:2">
-    <legend>VPC cible</legend>
-    {% if plan.target_vpc_id %}
-    <p class="hint">VPC cible déjà créé : {{ plan.target_vpc_id }}</p>
-    <label class="checkbox">
-      <input type="checkbox" id="delete_old_vpc" name="delete_old" value="1">
-      Supprimer l'ancien VPC cible (et ses ressources : VMs cible, subnets, security groups, route tables, internet service) en même temps
-    </label>
-    <button
-      type="button" class="btn sm ghost icon"
-      hx-post="/admin/plans/{{ plan.id }}/vpc-cible"
-      hx-include="#delete_old_vpc"
-      hx-target="#vpc-target-status" hx-swap="innerHTML"
-      hx-confirm="Créer un autre VPC cible pour ce plan ? L'actuel ({{ plan.target_vpc_id }}) sortira de la configuration du plan, supprimé ou conservé selon la case ci-dessus."
-      data-tooltip="Créer un autre VPC cible" aria-label="Créer un autre VPC cible"
-    >{{ macros.icon("plus") }}</button>
-    {% else %}
-    <button type="button" class="btn sm ghost icon" hx-post="/admin/plans/{{ plan.id }}/vpc-cible" hx-target="#vpc-target-status" hx-swap="innerHTML" data-tooltip="Créer le VPC cible" aria-label="Créer le VPC cible">{{ macros.icon("plus") }}</button>
-    {% endif %}
-    <div id="vpc-target-status"></div>
-  </fieldset>
-  {% endif %}
-
-  <fieldset style="grid-column:3">
-    <legend>VMs à répliquer</legend>
-    <input type="hidden" name="existing_selected_vms" value='{{ existing_vm_ids | tojson }}'>
-    <input type="hidden" name="existing_vm_image_overrides" value='{{ existing_vm_image_overrides | tojson }}'>
-    <input type="hidden" name="existing_vm_restart_order" value='{{ existing_vm_restart_order | tojson }}'>
-    {% if existing_vm_ids %}
-    <p class="hint">VMs actuellement sélectionnées : {{ existing_vm_ids | join(", ") }}</p>
-    {% endif %}
-    <button type="button" class="btn sm ghost icon" hx-post="/admin/plans/octl/scan-vms" hx-include="closest form" hx-target="#vm-list" hx-swap="innerHTML" data-tooltip="Scanner les VMs" aria-label="Scanner les VMs">{{ macros.icon("search") }}</button>
-    <div id="vm-list"><p class="hint">Renseigne l'AK, le SK et la région source, sélectionne un VPC source ci-dessus, puis clique sur « Scanner les VMs ».</p></div>
-  </fieldset>
-
   <fieldset style="grid-column:1/-1">
     <legend>Gestion des snapshots</legend>
     <div class="lbl">Fréquence de snapshot</div>
@@ -127,4 +74,24 @@
 
   <button type="submit" class="btn blue">{{ "Enregistrer" if plan else "Créer le plan" }}</button>
 </form>
+
+{% if plan %}
+<div class="card" style="margin-top:16px">
+  <div class="phdr">
+    <span class="stitle" style="font-size:14px">VPC du plan</span>
+    <button type="button" class="btn sm ghost icon" hx-post="/admin/plans/{{ plan.id }}/vpcs" hx-target="#plan-vpc-list" hx-swap="beforeend" data-tooltip="Ajouter un VPC" aria-label="Ajouter un VPC">{{ macros.icon("plus") }}</button>
+  </div>
+  <div class="pbody" id="plan-vpc-list">
+    {% for plan_vpc in plan_vpcs %}
+    {% set existing_vm_restart_order = restart_orders_by_plan_vpc_id.get(plan_vpc.id, {}) %}
+    {% include "admin/_plan_vpc_block.html" %}
+    {% endfor %}
+    {% if not plan_vpcs %}
+    <p class="empty">Aucun VPC pour l'instant — clique sur « Ajouter un VPC ».</p>
+    {% endif %}
+  </div>
+</div>
+{% else %}
+<p class="hint" style="margin-top:16px">Enregistre d'abord le plan pour pouvoir y ajouter des VPC.</p>
+{% endif %}
 {% endblock %}

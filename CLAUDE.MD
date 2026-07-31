@@ -89,13 +89,15 @@ page Visualiser d'un plan (réservées aux admins pour Activation/Test) :
   actions démarrer/arrêter — VPC/EIP/NAT conservés à l'arrêt — et
   supprimer avec confirmation).
 
-**Statut expérimental des appels EIP/NAT Gateway** : `CreatePublicIp`,
-`LinkPublicIp`, `UnlinkPublicIp`, `DeletePublicIp`, `CreateNatService`,
-`DeleteNatService` (`app/octl.py`) sont neufs et n'ont jamais été exécutés
-contre un compte Outscale réel par ce code — syntaxe confirmée via `octl
-iaas api <Action> --help` uniquement. À valider via un Test de PRA avant
-toute Activation PRA réelle sur un plan de production (voir TODO.md,
-section *Bascule PRA et Sandbox*).
+**Statut expérimental des appels EIP/NAT Gateway et Net Peering** :
+`CreatePublicIp`, `LinkPublicIp`, `UnlinkPublicIp`, `DeletePublicIp`,
+`CreateNatService`, `DeleteNatService`, `CreateNetPeering`,
+`AcceptNetPeering`, `DeleteNetPeering` (`app/octl.py`) sont neufs et n'ont
+jamais été exécutés contre un compte Outscale réel par ce code — syntaxe
+confirmée via `octl iaas api <Action> --help` uniquement. À valider via un
+Test de PRA (et, pour le peering, un plan à plusieurs VPC peerés côté
+source) avant toute Activation PRA réelle sur un plan de production (voir
+TODO.md, section *Bascule PRA et Sandbox*).
 
 ## Stack technique
 
@@ -146,10 +148,9 @@ section *Bascule PRA et Sandbox*).
 
 - Nom du plan
 - Définition AK/SK
-- VPC source, issu du scan du compte (NetId + tag Name), sélection unique
-- Bouton pour créer le VPC cible à l'identique (même IpRange), sur le compte
-  source (même région) ou le compte cible (autre région)
-- Cible de réplication
+- Cible de réplication (unique pour tout le plan — un Net Peering ne
+  fonctionnant qu'au sein d'une même région, tous les VPC du plan partagent
+  le même compte/région cible)
   - Même région
   - Autre région (liste de choix des régions Outscale)
     - AK/SK
@@ -159,11 +160,33 @@ section *Bascule PRA et Sandbox*).
     - Endpoint S3 défini selon la région choisie
     - Nombre de snapshots à conserver côté cible (à demander à l'utilisateur)
 - Mise à jour du VPC cible automatique (case à cocher, activée par défaut) :
-  reconstruit les objets manquants sur le VPC cible à chaque synchronisation
-  planifiée (voir *Mécanisme de réplication* ci-dessus)
-- Liste de VMs, issue du scan du compte, case à cocher pour les sélectionner
-  - Si une VM précédemment cochée n'existe plus : alerte sur le job et surlignage en rouge dans la liste de VMs
-  - Ordre de démarrage à la bascule (optionnel, par VM) — voir *Bascule PRA*
+  reconstruit les objets manquants sur chaque VPC cible à chaque
+  synchronisation planifiée (voir *Mécanisme de réplication* ci-dessus)
+- **VPC du plan** (un ou plusieurs — voir `app/plan_vpcs.py` et la table
+  `plan_vpcs`, un plan gérait un seul VPC avant la version multi-VPC ;
+  migration additive automatique au démarrage depuis les anciennes colonnes
+  `plans.source_vpc_id`/`target_vpc_id`/`target_subregion`/`selected_vms`/
+  `vm_image_overrides`, conservées mais plus lues) — bouton « Ajouter un
+  VPC », répété pour chaque VPC source à répliquer :
+  - VPC source, issu du scan du compte (NetId + tag Name), sélection unique
+    par bloc
+  - **AZ cible**, propre à ce VPC (les subnets/VMs de VPC différents du même
+    plan peuvent être créés dans des AZ différentes)
+  - Bouton pour créer le VPC cible à l'identique (même IpRange), sur le
+    compte source (même région) ou le compte cible (autre région)
+  - Liste de VMs de ce VPC, issue du scan du compte, case à cocher pour les
+    sélectionner
+    - Si une VM précédemment cochée n'existe plus : alerte sur le job et surlignage en rouge dans la liste de VMs
+    - Ordre de démarrage à la bascule (optionnel, par VM, plan-level — voir *Bascule PRA*, s'applique quel que soit le VPC de la VM)
+  - Bouton pour retirer ce VPC de la configuration (supprime aussi son VPC
+    cible et ses VM cible, best-effort)
+- **Net Peering** : si plusieurs VPC source du plan sont peerés entre eux
+  côté source, le peering équivalent est **détecté et recréé
+  automatiquement** côté cible à la création d'un VPC cible et à chaque
+  resynchronisation (`app/target.py::sync_net_peerings`) — aucune
+  configuration manuelle, purement dérivé de l'état du compte source. Les
+  routes des tables de routage qui pointent vers ce peering sont recréées
+  dans la foulée si les deux VPC cible existent déjà.
 - Fréquence de snapshot
 - Nombre de snapshots à conserver sur la production
 - Bouton pour supprimer le plan de reprise (avec double validation)

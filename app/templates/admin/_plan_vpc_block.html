@@ -1,0 +1,84 @@
+{% import "_macros.html" as macros %}
+<div class="card" id="plan-vpc-{{ plan_vpc.id }}" style="margin-bottom:12px">
+  <div class="phdr">
+    <span class="stitle" style="font-size:14px">
+      VPC{% if plan_vpc.source_vpc_id %} — {{ plan_vpc.source_vpc_id }}{% endif %}
+    </span>
+    <form method="post" action="/admin/plans/{{ plan.id }}/vpcs/{{ plan_vpc.id }}/supprimer" hx-confirm="Retirer ce VPC du plan ? Son VPC cible et ses VM cible seront supprimés (best-effort).">
+      <button type="submit" class="btn sm red icon" data-tooltip="Retirer ce VPC" aria-label="Retirer ce VPC">{{ macros.icon("trash") }}</button>
+    </form>
+  </div>
+  <div class="pbody form-3col" style="gap:12px">
+    <fieldset style="grid-column:1">
+      <legend>VPC source</legend>
+      <form>
+        <input type="hidden" name="source_ak" value="{{ plan.source_ak or '' }}">
+        <input type="hidden" name="source_region" value="{{ plan.source_region or '' }}">
+        <input type="hidden" name="plan_id" value="{{ plan.id }}">
+        {% if plan_vpc.source_vpc_id %}
+        <p class="hint">VPC actuellement sélectionné : {{ plan_vpc.source_vpc_id }}</p>
+        {% endif %}
+        <button type="button" class="btn sm ghost icon" hx-post="/admin/plans/octl/scan-vpcs" hx-include="closest form" hx-target="#vpc-list-{{ plan_vpc.id }}" hx-swap="innerHTML" data-tooltip="Scanner les VPC" aria-label="Scanner les VPC">{{ macros.icon("search") }}</button>
+        <div id="vpc-list-{{ plan_vpc.id }}"><p class="hint">Renseigne l'AK/SK/région source sur le plan puis clique sur « Scanner les VPC ».</p></div>
+        <button type="button" class="btn sm ghost icon" hx-post="/admin/plans/{{ plan.id }}/vpcs/{{ plan_vpc.id }}/vpc-source" hx-include="closest form" hx-target="#vpc-source-status-{{ plan_vpc.id }}" hx-swap="innerHTML" data-tooltip="Appliquer" aria-label="Appliquer">{{ macros.icon("check") }}</button>
+        <div id="vpc-source-status-{{ plan_vpc.id }}"></div>
+      </form>
+    </fieldset>
+
+    <fieldset style="grid-column:2">
+      <legend>AZ cible</legend>
+      <form>
+        <label>AZ cible <input type="text" name="target_subregion" placeholder="ex. eu-west-2a" value="{{ plan_vpc.target_subregion or '' }}"></label>
+        <p class="hint">AZ dans laquelle sont créés les subnets et VMs cible de CE VPC — indépendante de l'AZ des subnets du VPC source et des autres VPC du plan.</p>
+        <button type="button" class="btn sm ghost icon" hx-post="/admin/plans/{{ plan.id }}/vpcs/{{ plan_vpc.id }}/az" hx-include="closest form" hx-target="#vpc-az-status-{{ plan_vpc.id }}" hx-swap="innerHTML" data-tooltip="Enregistrer l'AZ" aria-label="Enregistrer l'AZ">{{ macros.icon("check") }}</button>
+        <div id="vpc-az-status-{{ plan_vpc.id }}"></div>
+      </form>
+    </fieldset>
+
+    <fieldset style="grid-column:3">
+      <legend>VPC cible</legend>
+      <form>
+        {% if plan_vpc.target_vpc_id %}
+        <p class="hint">VPC cible déjà créé : {{ plan_vpc.target_vpc_id }}</p>
+        <label class="checkbox">
+          <input type="checkbox" id="delete_old_vpc_{{ plan_vpc.id }}" name="delete_old" value="1">
+          Supprimer l'ancien VPC cible (et ses VMs cible) en même temps
+        </label>
+        <button
+          type="button" class="btn sm ghost icon"
+          hx-post="/admin/plans/{{ plan.id }}/vpcs/{{ plan_vpc.id }}/vpc-cible"
+          hx-include="closest form"
+          hx-target="#vpc-target-status-{{ plan_vpc.id }}" hx-swap="innerHTML"
+          hx-confirm="Créer un autre VPC cible pour ce VPC ? L'actuel ({{ plan_vpc.target_vpc_id }}) sortira de la configuration, supprimé ou conservé selon la case ci-dessus."
+          data-tooltip="Créer un autre VPC cible" aria-label="Créer un autre VPC cible"
+        >{{ macros.icon("plus") }}</button>
+        {% else %}
+        <button type="button" class="btn sm ghost icon" hx-post="/admin/plans/{{ plan.id }}/vpcs/{{ plan_vpc.id }}/vpc-cible" hx-include="closest form" hx-target="#vpc-target-status-{{ plan_vpc.id }}" hx-swap="innerHTML" data-tooltip="Créer le VPC cible" aria-label="Créer le VPC cible">{{ macros.icon("plus") }}</button>
+        {% endif %}
+        <div id="vpc-target-status-{{ plan_vpc.id }}"></div>
+      </form>
+    </fieldset>
+
+    <fieldset style="grid-column:1/-1">
+      <legend>VMs à répliquer</legend>
+      <form>
+        <input type="hidden" name="source_ak" value="{{ plan.source_ak or '' }}">
+        <input type="hidden" name="source_region" value="{{ plan.source_region or '' }}">
+        <input type="hidden" name="plan_id" value="{{ plan.id }}">
+        <input type="hidden" name="plan_vpc_id" value="{{ plan_vpc.id }}">
+        <input type="hidden" name="target_type" value="{{ plan.target_type }}">
+        <input type="hidden" name="target_ak" value="{{ plan.target_ak or '' }}">
+        <input type="hidden" name="target_region" value="{{ plan.target_region or '' }}">
+        <input type="hidden" name="existing_selected_vms" value='{{ (plan_vpc.selected_vms or "[]") | safe }}'>
+        <input type="hidden" name="existing_vm_image_overrides" value='{{ (plan_vpc.vm_image_overrides or "{}") | safe }}'>
+        <input type="hidden" name="existing_vm_restart_order" value='{{ (existing_vm_restart_order or {}) | tojson }}'>
+        {% set selected_ids = plan_vpc.selected_vms | default("[]") %}
+        <p class="hint">VMs actuellement sélectionnées : {{ selected_ids }}</p>
+        <button type="button" class="btn sm ghost icon" hx-post="/admin/plans/octl/scan-vms" hx-include="closest form" hx-target="#vm-list-{{ plan_vpc.id }}" hx-swap="innerHTML" data-tooltip="Scanner les VMs" aria-label="Scanner les VMs">{{ macros.icon("search") }}</button>
+        <div id="vm-list-{{ plan_vpc.id }}"><p class="hint">Sélectionne d'abord un VPC source ci-dessus (« Appliquer »), puis clique sur « Scanner les VMs ».</p></div>
+        <button type="button" class="btn sm blue" style="margin-top:8px" hx-post="/admin/plans/{{ plan.id }}/vpcs/{{ plan_vpc.id }}/vms" hx-include="closest form" hx-target="#vpc-vms-status-{{ plan_vpc.id }}" hx-swap="innerHTML">Enregistrer les VMs de ce VPC</button>
+        <div id="vpc-vms-status-{{ plan_vpc.id }}"></div>
+      </form>
+    </fieldset>
+  </div>
+</div>

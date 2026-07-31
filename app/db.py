@@ -214,6 +214,71 @@ def init_db() -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS plan_vpcs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            plan_id INTEGER NOT NULL,
+            source_vpc_id TEXT,
+            target_vpc_id TEXT,
+            target_subregion TEXT,
+            selected_vms TEXT NOT NULL DEFAULT '[]',
+            vm_image_overrides TEXT NOT NULL DEFAULT '{}',
+            position INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_plan_vpcs_plan_id ON plan_vpcs(plan_id)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS plan_vpc_resource_scan_cache (
+            plan_vpc_id INTEGER PRIMARY KEY,
+            subnets_count INTEGER,
+            security_groups_count INTEGER,
+            route_tables_count INTEGER,
+            internet_services_count INTEGER,
+            scanned_at TEXT,
+            error TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sandbox_vpcs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sandbox_id INTEGER NOT NULL,
+            plan_vpc_id INTEGER NOT NULL,
+            vpc_id TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sandbox_vpcs_sandbox_id ON sandbox_vpcs(sandbox_id)")
     _migrate_schema(conn)
+    _migrate_plan_vpcs(conn)
     conn.commit()
     conn.close()
+
+
+def _migrate_plan_vpcs(conn: sqlite3.Connection) -> None:
+    """Bascule additive vers le modèle multi-VPC (voir CLAUDE.MD, section
+    « Plans multi-VPC ») : un plan créé par une version antérieure n'a qu'un
+    seul VPC, porté par les colonnes historiques `plans.source_vpc_id` /
+    `target_vpc_id` / `target_subregion` / `selected_vms` /
+    `vm_image_overrides`. On les recopie ici dans une ligne `plan_vpcs` pour
+    que le plan continue à fonctionner sans intervention manuelle après mise
+    à jour — idempotent (`WHERE NOT EXISTS`), donc sans effet une fois fait.
+    Les colonnes historiques ne sont jamais supprimées (politique de
+    compatibilité) : elles restent inertes une fois la ligne `plan_vpcs`
+    créée, plus rien ne les lit."""
+    conn.execute(
+        """
+        INSERT INTO plan_vpcs (plan_id, source_vpc_id, target_vpc_id, target_subregion, selected_vms, vm_image_overrides)
+        SELECT id, source_vpc_id, target_vpc_id, target_subregion,
+               COALESCE(NULLIF(selected_vms, ''), '[]'), COALESCE(NULLIF(vm_image_overrides, ''), '{}')
+        FROM plans
+        WHERE source_vpc_id IS NOT NULL AND source_vpc_id != ''
+          AND NOT EXISTS (SELECT 1 FROM plan_vpcs WHERE plan_vpcs.plan_id = plans.id)
+        """
+    )

@@ -1,18 +1,27 @@
 #!/usr/bin/env python3
-"""Cycle de vie d'un sandbox : clone un VPC indépendant du VPC de PRA
-persistant du plan et le construit comme un Test de PRA (VM restaurées
-depuis les derniers snapshots disponibles, démarrées, EIP/NAT neuves,
-jamais de modification côté source) — pour expérimenter sans jamais
-toucher au VPC de PRA officiel tenu à jour par la sync planifiée. Lancé en
-arrière-plan depuis app/routers/admin.py (page Sandbox).
+"""Cycle de vie d'un sandbox : clone chaque VPC du plan (voir
+app/plan_vpcs.py — un plan peut en avoir plusieurs) dans un VPC indépendant
+du VPC de PRA persistant, et le construit comme un Test de PRA (VM
+restaurées depuis les derniers snapshots disponibles, démarrées, EIP/NAT
+neuves, jamais de modification côté source, Net Peering recréé entre les
+VPC du sandbox si les VPC source correspondants sont peerés) — pour
+expérimenter sans jamais toucher au VPC de PRA officiel tenu à jour par la
+sync planifiée. Lancé en arrière-plan depuis app/routers/admin.py (page
+Sandbox).
 
 Actions :
-- create : construction initiale (VPC, réseau, VM, EIP, NAT).
+- create : construction initiale (VPC, réseau, VM, EIP, NAT — un jeu par
+  VPC du plan).
 - start/stop : VM du sandbox uniquement (VPC/EIP/NAT conservés — un tag
   osc.fcu.eip.auto-attach posé par app/failover.py::assign_eips évite que
-  l'EIP se détache au passage stopped/running).
-- delete : démontage complet (VM, EIP, NAT, réseau, VPC), voir
-  app/target.py::delete_target_vpc (paramétré par sandbox_id).
+  l'EIP se détache au passage stopped/running). Déjà VPC-agnostiques (VM de
+  tous les VPC du sandbox traitées en une fois), aucun changement lié au
+  multi-VPC nécessaire ici.
+- delete : démontage complet (VM, EIP, NAT, réseau, VPC) de chaque VPC du
+  sandbox, voir app/target.py::delete_target_vpc (paramétré par
+  sandbox_id). Un sandbox créé avant la prise en charge du multi-VPC (pas
+  de ligne `sandbox_vpcs`) reste géré via l'ancienne colonne
+  `sandboxes.vpc_id`/`state` — jamais recréé sous la nouvelle forme.
 """
 import json
 import sys
@@ -24,7 +33,8 @@ from app import failover, octl, restore  # noqa: E402
 from app.crypto import decrypt  # noqa: E402
 from app.db import get_connection  # noqa: E402
 from app.jobs import finish_job, log_step, start_job  # noqa: E402
-from app.target import delete_target_vpc, resolve_target_credentials, sync_target_network  # noqa: E402
+from app.plan_vpcs import get_plan_vpc, list_plan_vpcs, selected_vms_of, vm_image_overrides_of  # noqa: E402
+from app.target import delete_target_vpc, resolve_target_credentials, sync_net_peerings, sync_target_network  # noqa: E402
 
 
 def _load(sandbox_id: int):
@@ -40,6 +50,13 @@ def _set_job(sandbox_id: int, job_id: int) -> None:
     conn.execute("UPDATE sandboxes SET job_id = ? WHERE id = ?", (job_id, sandbox_id))
     conn.commit()
     conn.close()
+
+
+def _sandbox_vpcs(sandbox_id: int) -> list:
+    conn = get_connection()
+    rows = conn.execute("SELECT * FROM sandbox_vpcs WHERE sandbox_id = ?", (sandbox_id,)).fetchall()
+    conn.close()
+    return rows
 
 
 def create(sandbox_id: int) -> None:
@@ -59,8 +76,10 @@ def create(sandbox_id: int) -> None:
     if not octl.is_available():
         fail("octl n'est pas installé sur ce serveur.")
         return
-    if not plan["source_vpc_id"]:
-        fail("VPC source non sélectionné pour ce plan.")
+
+    plan_vpcs = [pv for pv in list_plan_vpcs(plan["id"]) if pv["source_vpc_id"] and selected_vms_of(pv)]
+    if not plan_vpcs:
+        fail("Aucun VPC avec au moins une VM sélectionnée pour ce plan.")
         return
 
     target_ak, target_sk, target_region, target_error = resolve_target_credentials(plan)
@@ -69,73 +88,96 @@ def create(sandbox_id: int) -> None:
         return
 
     source_sk = decrypt(plan["source_sk_encrypted"]) if plan["source_sk_encrypted"] else ""
-    selected_vms = json.loads(plan["selected_vms"] or "[]")
-    if not selected_vms:
-        fail("Aucune VM sélectionnée pour ce plan.")
-        return
 
     try:
-        log_step(job_id, "Création du VPC du sandbox...")
-        source_vpcs = octl.list_vpcs(plan["source_ak"], source_sk, plan["source_region"])
-        source_vpc = next((v for v in source_vpcs if v.get("NetId") == plan["source_vpc_id"]), None)
-        if source_vpc is None:
-            raise octl.OctlError("VPC source introuvable sur le compte (supprimé ?).")
-        name_tag = next(
-            (t["Value"] for t in source_vpc.get("Tags", []) if t.get("Key") == "Name"), plan["name"]
-        )
-        sandbox_vpc = octl.create_vpc(
-            target_ak, target_sk, target_region, source_vpc["IpRange"], f"{name_tag}-sandbox-{sandbox_id}",
-            tags=source_vpc.get("Tags", []),
-        )
-        sandbox_vpc_id = sandbox_vpc.get("NetId")
-        if not sandbox_vpc_id:
-            raise octl.OctlError("La création du VPC du sandbox n'a pas renvoyé d'identifiant.")
-        conn = get_connection()
-        conn.execute("UPDATE sandboxes SET vpc_id = ? WHERE id = ?", (sandbox_vpc_id, sandbox_id))
-        conn.commit()
-        conn.close()
-        log_step(job_id, f"VPC {sandbox_vpc_id} créé.")
-
-        log_step(job_id, "Resynchronisation du réseau (subnets, security groups, internet service, routes)...")
-        sync_target_network(plan, target_ak, target_sk, target_region, sandbox_vpc_id)
-        log_step(job_id, "Réseau du sandbox prêt.")
-
+        source_vpcs_by_id = {v.get("NetId"): v for v in octl.list_vpcs(plan["source_ak"], source_sk, plan["source_region"])}
         source_vms_by_id = {vm.get("VmId"): vm for vm in octl.list_vms(plan["source_ak"], source_sk, plan["source_region"])}
         source_subnets_by_id = {s.get("SubnetId"): s for s in octl.list_subnets(plan["source_ak"], source_sk, plan["source_region"])}
 
-        restored_vms = []
-        for vm_id in selected_vms:
-            vm = source_vms_by_id.get(vm_id)
-            if vm is None:
-                log_step(job_id, f"VM {vm_id} introuvable sur le compte source, ignorée.", level="error")
+        sandbox_vpc_by_plan_vpc_id = {}
+        for plan_vpc in plan_vpcs:
+            source_vpc = source_vpcs_by_id.get(plan_vpc["source_vpc_id"])
+            if source_vpc is None:
+                log_step(job_id, f"VPC source {plan_vpc['source_vpc_id']} introuvable sur le compte, ignoré.", level="error")
                 continue
-            volume_ids = [
-                bdm["Bsu"]["VolumeId"] for bdm in vm.get("BlockDeviceMappings", [])
-                if bdm.get("Bsu", {}).get("VolumeId")
-            ]
-            snapshots_by_volume = {}
-            for volume_id in volume_ids:
-                snapshots = octl.list_snapshots(plan["source_ak"], source_sk, plan["source_region"], volume_id)
-                snapshots.sort(key=lambda s: s.get("CreationDate", ""), reverse=True)
-                if snapshots:
-                    snapshots_by_volume[volume_id] = snapshots[0].get("SnapshotId")
-            if len(snapshots_by_volume) != len(volume_ids):
-                log_step(job_id, f"VM {vm_id} : snapshot manquant pour au moins un volume, ignorée.", level="error")
-                continue
-
-            source_volumes_by_id = {v["VolumeId"]: v for v in octl.list_volumes(plan["source_ak"], source_sk, plan["source_region"], volume_ids)}
-            source_subnet = source_subnets_by_id.get(vm.get("SubnetId"))
-            if source_subnet is None:
-                log_step(job_id, f"VM {vm_id} : subnet source introuvable, ignorée.", level="error")
-                continue
-
-            log_step(job_id, f"Restauration de la VM {vm_id} dans le sandbox...")
-            restore.restore_vm(
-                plan, target_ak, target_sk, target_region, vm, source_subnet,
-                source_volumes_by_id, snapshots_by_volume, job_id,
-                target_vpc_id=sandbox_vpc_id, sandbox_id=sandbox_id,
+            name_tag = next(
+                (t["Value"] for t in source_vpc.get("Tags", []) if t.get("Key") == "Name"), plan["name"]
             )
-            restored_vms.append(vm_id)
+            log_step(job_id, f"Création du VPC du sandbox pour {plan_vpc['source_vpc_id']}...")
+            sandbox_vpc = octl.create_vpc(
+                target_ak, target_sk, target_region, source_vpc["IpRange"],
+                f"{name_tag}-sandbox-{sandbox_id}-{plan_vpc['id']}", tags=source_vpc.get("Tags", []),
+            )
+            sandbox_vpc_id = sandbox_vpc.get("NetId")
+            if not sandbox_vpc_id:
+                raise octl.OctlError("La création du VPC du sandbox n'a pas renvoyé d'identifiant.")
+
+            conn = get_connection()
+            conn.execute(
+                "INSERT INTO sandbox_vpcs (sandbox_id, plan_vpc_id, vpc_id) VALUES (?, ?, ?)",
+                (sandbox_id, plan_vpc["id"], sandbox_vpc_id),
+            )
+            conn.commit()
+            conn.close()
+            sandbox_vpc_by_plan_vpc_id[plan_vpc["id"]] = sandbox_vpc_id
+            log_step(job_id, f"VPC {sandbox_vpc_id} créé.")
+
+        if not sandbox_vpc_by_plan_vpc_id:
+            raise octl.OctlError("Aucun VPC du sandbox n'a pu être créé.")
+
+        log_step(job_id, "Recréation des Net Peering entre les VPC du sandbox (si peerés côté source)...")
+        pseudo_plan_vpcs = [
+            {"source_vpc_id": pv["source_vpc_id"], "target_vpc_id": sandbox_vpc_by_plan_vpc_id[pv["id"]]}
+            for pv in plan_vpcs if pv["id"] in sandbox_vpc_by_plan_vpc_id
+        ]
+        peering_target_id_by_source_id = sync_net_peerings(plan, pseudo_plan_vpcs, target_ak, target_sk, target_region)
+
+        restored_vms = []
+        for plan_vpc in plan_vpcs:
+            sandbox_vpc_id = sandbox_vpc_by_plan_vpc_id.get(plan_vpc["id"])
+            if sandbox_vpc_id is None:
+                continue
+
+            log_step(job_id, f"Resynchronisation du réseau du VPC {sandbox_vpc_id}...")
+            sync_target_network(
+                plan, target_ak, target_sk, target_region,
+                plan_vpc["source_vpc_id"], sandbox_vpc_id, plan_vpc["target_subregion"] or "",
+                peering_target_id_by_source_id,
+            )
+
+            for vm_id in selected_vms_of(plan_vpc):
+                vm = source_vms_by_id.get(vm_id)
+                if vm is None:
+                    log_step(job_id, f"VM {vm_id} introuvable sur le compte source, ignorée.", level="error")
+                    continue
+                volume_ids = [
+                    bdm["Bsu"]["VolumeId"] for bdm in vm.get("BlockDeviceMappings", [])
+                    if bdm.get("Bsu", {}).get("VolumeId")
+                ]
+                snapshots_by_volume = {}
+                for volume_id in volume_ids:
+                    snapshots = octl.list_snapshots(plan["source_ak"], source_sk, plan["source_region"], volume_id)
+                    snapshots.sort(key=lambda s: s.get("CreationDate", ""), reverse=True)
+                    if snapshots:
+                        snapshots_by_volume[volume_id] = snapshots[0].get("SnapshotId")
+                if len(snapshots_by_volume) != len(volume_ids):
+                    log_step(job_id, f"VM {vm_id} : snapshot manquant pour au moins un volume, ignorée.", level="error")
+                    continue
+
+                source_volumes_by_id = {v["VolumeId"]: v for v in octl.list_volumes(plan["source_ak"], source_sk, plan["source_region"], volume_ids)}
+                source_subnet = source_subnets_by_id.get(vm.get("SubnetId"))
+                if source_subnet is None:
+                    log_step(job_id, f"VM {vm_id} : subnet source introuvable, ignorée.", level="error")
+                    continue
+
+                log_step(job_id, f"Restauration de la VM {vm_id} dans le sandbox...")
+                restore.restore_vm(
+                    plan, target_ak, target_sk, target_region, vm, source_subnet,
+                    source_volumes_by_id, snapshots_by_volume, job_id,
+                    target_vpc_id=sandbox_vpc_id, sandbox_id=sandbox_id,
+                    image_override=vm_image_overrides_of(plan_vpc).get(vm_id),
+                )
+                restored_vms.append(vm_id)
 
         if not restored_vms:
             raise octl.OctlError("Aucune VM n'a pu être restaurée dans le sandbox.")
@@ -154,20 +196,27 @@ def create(sandbox_id: int) -> None:
             target_ak, target_sk, target_region, plan["source_ak"], source_sk, plan["source_region"],
             restored_vms, target_vm_id_by_source, "test", job_id,
         )
-        nat = failover.assign_nat(
-            plan["source_ak"], source_sk, plan["source_region"], plan["source_vpc_id"],
-            target_ak, target_sk, target_region, sandbox_vpc_id, "test", job_id,
-        )
+        nats = []
+        for plan_vpc in plan_vpcs:
+            sandbox_vpc_id = sandbox_vpc_by_plan_vpc_id.get(plan_vpc["id"])
+            if sandbox_vpc_id is None:
+                continue
+            nat = failover.assign_nat(
+                plan["source_ak"], source_sk, plan["source_region"], plan_vpc["source_vpc_id"],
+                target_ak, target_sk, target_region, sandbox_vpc_id, "test", job_id,
+            )
+            if nat:
+                nats.append({"plan_vpc_id": plan_vpc["id"], "vpc_id": sandbox_vpc_id, **nat})
     except (octl.OctlError, restore.RestoreError) as exc:
         fail(str(exc))
         return
 
-    state = {"vm_eips": vm_eips, "nat": nat}
+    state = {"vm_eips": vm_eips, "nats": nats}
     conn = get_connection()
     conn.execute("UPDATE sandboxes SET status = 'running', state = ?, error = NULL WHERE id = ?", (json.dumps(state), sandbox_id))
     conn.commit()
     conn.close()
-    finish_job(job_id, "success", f"Sandbox prêt : {len(restored_vms)} VM(s) démarrée(s) dans {sandbox_vpc_id}.")
+    finish_job(job_id, "success", f"Sandbox prêt : {len(restored_vms)} VM(s) démarrée(s) dans {len(sandbox_vpc_by_plan_vpc_id)} VPC.")
 
 
 def start(sandbox_id: int) -> None:
@@ -260,19 +309,44 @@ def delete(sandbox_id: int) -> None:
             except octl.OctlError as exc:
                 log_step(job_id, f"Échec de la suppression de l'EIP {eip.get('public_ip')} : {exc}", level="error")
 
-    nat = state.get("nat") or {}
-    if nat.get("nat_service_id"):
-        try:
-            octl.delete_nat_service(target_ak, target_sk, target_region, nat["nat_service_id"])
-        except octl.OctlError as exc:
-            log_step(job_id, f"Échec de la suppression de la NAT Gateway : {exc}", level="error")
-        if nat.get("public_ip_id"):
+    # Un sandbox à plusieurs VPC (voir app/plan_vpcs.py) a une NAT Gateway
+    # par VPC : state["nats"] est une liste ; l'ancien format state["nat"]
+    # (objet unique, sandbox créé avant la prise en charge du multi-VPC)
+    # est aussi lu pour ne pas laisser un sandbox déjà en cours bloqué.
+    nats = state.get("nats") or ([state["nat"]] if state.get("nat") else [])
+    for nat in nats:
+        if nat.get("nat_service_id"):
             try:
-                octl.delete_public_ip(target_ak, target_sk, target_region, nat["public_ip_id"])
-            except octl.OctlError:
-                pass
+                octl.delete_nat_service(target_ak, target_sk, target_region, nat["nat_service_id"])
+            except octl.OctlError as exc:
+                log_step(job_id, f"Échec de la suppression de la NAT Gateway : {exc}", level="error")
+            if nat.get("public_ip_id"):
+                try:
+                    octl.delete_public_ip(target_ak, target_sk, target_region, nat["public_ip_id"])
+                except octl.OctlError:
+                    pass
 
-    if sandbox["vpc_id"]:
+    sandbox_vpcs = _sandbox_vpcs(sandbox_id)
+    if sandbox_vpcs:
+        for sandbox_vpc in sandbox_vpcs:
+            plan_vpc = get_plan_vpc(sandbox_vpc["plan_vpc_id"])
+            vm_ids = selected_vms_of(plan_vpc) if plan_vpc else None
+            log_step(job_id, f"Suppression du VPC {sandbox_vpc['vpc_id']} et de ses ressources...")
+            result = delete_target_vpc(
+                plan, target_ak, target_sk, target_region, sandbox_vpc["vpc_id"],
+                sandbox_id=sandbox_id, vm_ids=vm_ids,
+            )
+            for error in result["errors"]:
+                log_step(job_id, error, level="error")
+            log_step(
+                job_id,
+                f"VPC {sandbox_vpc['vpc_id']} : {result['vms_deleted']}/{result['vms_total']} VM(s), "
+                f"{result['sgs_deleted']} security group(s), {result['route_tables_deleted']} table(s) de routage, "
+                f"{result['subnets_deleted']} subnet(s) supprimé(s) — VPC {'supprimé' if result['vpc_deleted'] else 'non supprimé'}.",
+            )
+    elif sandbox["vpc_id"]:
+        # Sandbox créé avant la prise en charge du multi-VPC (pas de ligne
+        # sandbox_vpcs) — même comportement qu'avant, sur l'ancienne colonne.
         log_step(job_id, f"Suppression du VPC {sandbox['vpc_id']} et de ses ressources...")
         result = delete_target_vpc(plan, target_ak, target_sk, target_region, sandbox["vpc_id"], sandbox_id=sandbox_id)
         for error in result["errors"]:
@@ -286,6 +360,7 @@ def delete(sandbox_id: int) -> None:
 
     conn = get_connection()
     conn.execute("DELETE FROM sandbox_vm_targets WHERE sandbox_id = ?", (sandbox_id,))
+    conn.execute("DELETE FROM sandbox_vpcs WHERE sandbox_id = ?", (sandbox_id,))
     conn.execute("UPDATE sandboxes SET status = 'deleted' WHERE id = ?", (sandbox_id,))
     conn.commit()
     conn.close()

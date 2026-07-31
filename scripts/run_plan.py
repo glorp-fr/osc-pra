@@ -13,7 +13,6 @@ de ses volumes depuis les derniers snapshots à chaque cycle (voir
 app/restore.py). Pour une cible cross-région, l'export/import via S3 reste
 à implémenter : la restauration est ignorée avec un message explicite.
 """
-import json
 import sys
 from pathlib import Path
 
@@ -23,7 +22,8 @@ from app import octl, restore  # noqa: E402
 from app.crypto import decrypt  # noqa: E402
 from app.db import get_connection  # noqa: E402
 from app.jobs import finish_job, log_step, start_job  # noqa: E402
-from app.target import resolve_target_credentials, sync_target_network  # noqa: E402
+from app.plan_vpcs import list_plan_vpcs, selected_vms_of, vm_image_overrides_of  # noqa: E402
+from app.target import resolve_target_credentials, sync_net_peerings, sync_target_network  # noqa: E402
 
 
 def main(plan_id: int) -> None:
@@ -39,7 +39,12 @@ def main(plan_id: int) -> None:
         # terminé (scripts/end_test.py remet 'normal').
         return
 
-    selected_vms = json.loads(plan["selected_vms"] or "[]")
+    plan_vpcs = list_plan_vpcs(plan_id)
+    target_vpc_id_by_vm = {vm_id: pv["target_vpc_id"] for pv in plan_vpcs for vm_id in selected_vms_of(pv)}
+    image_override_by_vm = {
+        vm_id: override for pv in plan_vpcs for vm_id, override in vm_image_overrides_of(pv).items()
+    }
+    selected_vms = list(target_vpc_id_by_vm)
     if not selected_vms:
         return
 
@@ -64,43 +69,51 @@ def main(plan_id: int) -> None:
     target_ak, target_sk, target_region, target_error = resolve_target_credentials(plan)
 
     sync_log = None
-    if (
-        plan["auto_sync_target"]
-        and not target_error
-        and plan["source_vpc_id"]
-        and plan["target_vpc_id"]
-        and plan["target_subregion"]
-    ):
-        sync_log = _sync_target_vpc(plan, target_ak, target_sk, target_region)
+    if plan["auto_sync_target"] and not target_error:
+        complete_vpcs = [pv for pv in plan_vpcs if pv["source_vpc_id"] and pv["target_vpc_id"] and pv["target_subregion"]]
+        if complete_vpcs:
+            sync_log = _sync_target_vpcs(plan, complete_vpcs, target_ak, target_sk, target_region)
 
     for vm_id in selected_vms:
         _run_vm_snapshot(
             plan, sk, vm_id, vms_by_id.get(vm_id), subnets_by_id,
-            target_ak, target_sk, target_region, target_error, sync_log,
+            target_ak, target_sk, target_region, target_error,
+            target_vpc_id_by_vm.get(vm_id), image_override_by_vm.get(vm_id), sync_log,
         )
 
 
-def _sync_target_vpc(plan, target_ak: str, target_sk: str, target_region: str) -> tuple[str, str]:
-    """Reconstruit les objets manquants sur le VPC cible avant de répliquer
-    les VMs — une seule fois par exécution du plan (pas par VM), voir
-    app.target.sync_target_network. Contrôlé par l'option « Mise à jour du
-    VPC cible automatique » du plan (auto_sync_target, cochée par défaut)."""
+def _sync_target_vpcs(plan, plan_vpcs: list, target_ak: str, target_sk: str, target_region: str) -> tuple[str, str]:
+    """Reconstruit les objets manquants sur chaque VPC cible du plan avant
+    de répliquer les VMs — une seule fois par exécution du plan (pas par
+    VM), voir app.target.sync_target_network. Recrée aussi les Net Peering
+    manquants entre les VPC du plan (voir app.target.sync_net_peerings),
+    avant la boucle pour que les routes vers ces peerings soient recréées
+    dans la même passe. Contrôlé par l'option « Mise à jour du VPC cible
+    automatique » du plan (auto_sync_target, cochée par défaut)."""
     try:
-        summary = sync_target_network(plan, target_ak, target_sk, target_region, plan["target_vpc_id"])
-        created = (
-            summary["subnets_created"] + summary["sgs_created"] + summary["route_tables_created"]
-            + (1 if summary["internet_service_created"] else 0)
-        )
+        peering_target_id_by_source_id = sync_net_peerings(plan, plan_vpcs, target_ak, target_sk, target_region)
+        created = 0
+        for plan_vpc in plan_vpcs:
+            summary = sync_target_network(
+                plan, target_ak, target_sk, target_region,
+                plan_vpc["source_vpc_id"], plan_vpc["target_vpc_id"], plan_vpc["target_subregion"],
+                peering_target_id_by_source_id,
+            )
+            created += (
+                summary["subnets_created"] + summary["sgs_created"] + summary["route_tables_created"]
+                + (1 if summary["internet_service_created"] else 0)
+            )
         if created:
-            return "info", f"VPC cible resynchronisé automatiquement : {created} objet(s) manquant(s) recréé(s)."
-        return "info", "VPC cible resynchronisé automatiquement : aucun objet manquant."
+            return "info", f"VPC cible resynchronisé(s) automatiquement : {created} objet(s) manquant(s) recréé(s)."
+        return "info", "VPC cible resynchronisé(s) automatiquement : aucun objet manquant."
     except octl.OctlError as exc:
-        return "error", f"Échec de la resynchronisation automatique du VPC cible : {exc}"
+        return "error", f"Échec de la resynchronisation automatique du/des VPC cible : {exc}"
 
 
 def _run_vm_snapshot(
     plan, sk: str, vm_id: str, vm: dict | None, subnets_by_id: dict,
     target_ak: str, target_sk: str, target_region: str, target_error: str | None,
+    target_vpc_id: str | None = None, image_override: str | None = None,
     sync_log: tuple[str, str] | None = None,
 ) -> None:
     job_id = start_job("snapshot", plan["id"], plan["name"], vm_id)
@@ -156,6 +169,10 @@ def _run_vm_snapshot(
         finish_job(job_id, "error", f"{snapshot_summary} Restauration sur la VM cible impossible : {target_error}")
         return
 
+    if not target_vpc_id:
+        finish_job(job_id, "error", f"{snapshot_summary} VPC cible non créé pour le VPC de cette VM.")
+        return
+
     try:
         log_step(job_id, "Résolution des volumes et du subnet source...")
         source_volumes = octl.list_volumes(plan["source_ak"], sk, plan["source_region"], volume_ids)
@@ -167,6 +184,7 @@ def _run_vm_snapshot(
         restore_message = restore.restore_vm(
             plan, target_ak, target_sk, target_region, vm, source_subnet,
             source_volumes_by_id, snapshots_by_volume, job_id,
+            target_vpc_id=target_vpc_id, image_override=image_override,
         )
         finish_job(job_id, "success", f"{snapshot_summary} {restore_message}")
     except (restore.RestoreError, octl.OctlError) as exc:

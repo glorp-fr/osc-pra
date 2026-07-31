@@ -14,8 +14,12 @@ from app.auth import ROLE_LABELS, ROLES, require_admin, require_login, require_o
 from app.crypto import decrypt, encrypt
 from app.db import DB_PATH, get_connection
 from app.jobs import finish_job, get_job, get_job_logs, jobs_for_plan, last_executions_by_plan, last_job, running_plan_ids
+from app.plan_vpcs import (
+    create_plan_vpc, delete_plan_vpc, get_plan_vpc, list_plan_vpcs, selected_vms_of,
+    update_plan_vpc, vm_image_overrides_of,
+)
 from app.resource_scan import get_cached_source_counts, scan_and_cache_source
-from app.target import count_vpc_resources, delete_target_vpc, resolve_target_credentials, sync_target_network
+from app.target import count_vpc_resources, delete_target_vpc, resolve_target_credentials, sync_net_peerings, sync_target_network
 from app.templates_env import templates
 
 router = APIRouter(prefix="/admin")
@@ -458,8 +462,10 @@ def _plan_vm_status(plan) -> tuple[list[dict], str | None]:
     actif du plan et du dernier job (Défaillant si le dernier job de cette VM
     est en erreur). Retourne aussi la dernière date à laquelle TOUTES les VMs
     sélectionnées ont un snapshot réussi (dernier point de restauration
-    complet du plan)."""
-    selected_vms = json.loads(plan["selected_vms"] or "[]")
+    complet du plan). Un plan peut avoir plusieurs VPC (voir
+    app/plan_vpcs.py) : les VM de tous les VPC du plan sont fusionnées ici,
+    l'ID de VM étant unique sur le compte quel que soit son VPC."""
+    selected_vms = [vm_id for pv in list_plan_vpcs(plan["id"]) for vm_id in selected_vms_of(pv)]
     if not selected_vms:
         return [], None
 
@@ -564,16 +570,23 @@ def _extract_vm_restart_order(form, selected_vms: list[str]) -> dict:
     return order
 
 
-def _resolve_source_vpc_id(source_vpc_id: str, plan_id: str) -> str:
+def _restart_order_for_vpc(plan, plan_vpc) -> dict:
+    """Sous-ensemble de plans.vm_restart_order (flat, voir
+    app/failover.py::resolve_start_order) restreint aux VM de CE VPC —
+    affiché pré-rempli dans le bloc VPC du formulaire du plan."""
+    order = json.loads(plan["vm_restart_order"] or "{}")
+    return {vm_id: value for vm_id, value in order.items() if vm_id in set(selected_vms_of(plan_vpc))}
+
+
+def _resolve_source_vpc_id(source_vpc_id: str, plan_vpc_id: str) -> str:
     """Idem _resolve_source_sk : si le VPC source n'a pas été (re)scanné dans
-    ce chargement de page, on retombe sur celui déjà enregistré sur le plan."""
-    if source_vpc_id or not plan_id:
+    ce chargement de page, on retombe sur celui déjà enregistré sur ce VPC
+    du plan (voir app/plan_vpcs.py)."""
+    if source_vpc_id or not plan_vpc_id:
         return source_vpc_id
 
-    conn = get_connection()
-    plan = conn.execute("SELECT source_vpc_id FROM plans WHERE id = ?", (plan_id,)).fetchone()
-    conn.close()
-    return plan["source_vpc_id"] if plan and plan["source_vpc_id"] else source_vpc_id
+    plan_vpc = get_plan_vpc(int(plan_vpc_id))
+    return plan_vpc["source_vpc_id"] if plan_vpc and plan_vpc["source_vpc_id"] else source_vpc_id
 
 
 @router.get("/plans")
@@ -605,9 +618,8 @@ def plan_new_form(request: Request):
     return templates.TemplateResponse(
         "admin/plan_form.html",
         {
-            "request": request, "user": user, "error": None, "plan": None,
-            "snapshot_freq": scheduling.parse_cron(None), "existing_vm_ids": [],
-            "existing_vm_image_overrides": {}, "existing_vm_restart_order": {},
+            "request": request, "user": user, "error": None, "plan": None, "plan_vpcs": [],
+            "snapshot_freq": scheduling.parse_cron(None),
         },
     )
 
@@ -619,13 +631,10 @@ async def plan_new_submit(
     source_ak: str = Form(""),
     source_sk: str = Form(""),
     source_region: str = Form(""),
-    selected_vms: list[str] = Form([]),
-    source_vpc_id: str = Form(""),
     target_type: str = Form("meme_region"),
     target_region: str = Form(""),
     target_ak: str = Form(""),
     target_sk: str = Form(""),
-    target_subregion: str = Form(""),
     sync_endpoint: str = Form(""),
     sync_bucket: str = Form(""),
     sync_ak: str = Form(""),
@@ -643,30 +652,25 @@ async def plan_new_submit(
         return user
 
     snapshot_frequency = scheduling.build_cron(snapshot_freq_type, snapshot_hourly_interval, snapshot_time, snapshot_days)
-    form = await request.form()
-    vm_image_overrides = _extract_vm_image_overrides(form, selected_vms)
-    vm_restart_order = _extract_vm_restart_order(form, selected_vms)
 
     conn = get_connection()
     try:
         conn.execute(
             """
             INSERT INTO plans (
-                name, source_ak, source_sk_encrypted, source_region, selected_vms, source_vpc_id,
-                target_type, target_region, target_ak, target_sk_encrypted, target_subregion,
+                name, source_ak, source_sk_encrypted, source_region,
+                target_type, target_region, target_ak, target_sk_encrypted,
                 sync_endpoint, sync_bucket, sync_ak,
-                sync_sk_encrypted, target_retain_count, snapshot_frequency, source_retain_count, vm_image_overrides,
-                auto_sync_target, vm_restart_order
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                sync_sk_encrypted, target_retain_count, snapshot_frequency, source_retain_count,
+                auto_sync_target
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                name, source_ak, encrypt(source_sk), source_region, json.dumps(selected_vms), source_vpc_id,
-                target_type, target_region, target_ak, encrypt(target_sk), target_subregion,
+                name, source_ak, encrypt(source_sk), source_region,
+                target_type, target_region, target_ak, encrypt(target_sk),
                 sync_endpoint, sync_bucket, sync_ak,
                 encrypt(sync_sk), target_retain_count, snapshot_frequency, source_retain_count,
-                json.dumps(vm_image_overrides),
                 1 if auto_sync_target else 0,
-                json.dumps(vm_restart_order),
             ),
         )
         conn.commit()
@@ -676,9 +680,8 @@ async def plan_new_submit(
         return templates.TemplateResponse(
             "admin/plan_form.html",
             {
-                "request": request, "user": user, "error": "Un plan porte déjà ce nom", "plan": None,
-                "snapshot_freq": snapshot_freq, "existing_vm_ids": selected_vms,
-                "existing_vm_image_overrides": vm_image_overrides, "existing_vm_restart_order": vm_restart_order,
+                "request": request, "user": user, "error": "Un plan porte déjà ce nom", "plan": None, "plan_vpcs": [],
+                "snapshot_freq": snapshot_freq,
             },
             status_code=400,
         )
@@ -703,14 +706,14 @@ def plan_edit_form(request: Request, plan_id: int):
     if plan is None:
         return RedirectResponse("/admin/plans", status_code=303)
 
+    plan_vpcs = list_plan_vpcs(plan_id)
     return templates.TemplateResponse(
         "admin/plan_form.html",
         {
             "request": request, "user": user, "error": None, "plan": plan,
+            "plan_vpcs": plan_vpcs,
+            "restart_orders_by_plan_vpc_id": {pv["id"]: _restart_order_for_vpc(plan, pv) for pv in plan_vpcs},
             "snapshot_freq": scheduling.parse_cron(plan["snapshot_frequency"]),
-            "existing_vm_ids": json.loads(plan["selected_vms"] or "[]"),
-            "existing_vm_image_overrides": json.loads(plan["vm_image_overrides"] or "{}"),
-            "existing_vm_restart_order": json.loads(plan["vm_restart_order"] or "{}"),
             "plan_running": plan_id in running_plan_ids(),
         },
     )
@@ -724,13 +727,10 @@ async def plan_edit_submit(
     source_ak: str = Form(""),
     source_sk: str = Form(""),
     source_region: str = Form(""),
-    selected_vms: list[str] = Form([]),
-    source_vpc_id: str = Form(""),
     target_type: str = Form("meme_region"),
     target_region: str = Form(""),
     target_ak: str = Form(""),
     target_sk: str = Form(""),
-    target_subregion: str = Form(""),
     sync_endpoint: str = Form(""),
     sync_bucket: str = Form(""),
     sync_ak: str = Form(""),
@@ -757,32 +757,24 @@ async def plan_edit_submit(
     source_sk_encrypted = encrypt(source_sk) if source_sk else existing["source_sk_encrypted"]
     sync_sk_encrypted = encrypt(sync_sk) if sync_sk else existing["sync_sk_encrypted"]
     target_sk_encrypted = encrypt(target_sk) if target_sk else existing["target_sk_encrypted"]
-    source_vpc_id = source_vpc_id or existing["source_vpc_id"]
-    form = await request.form()
-    vm_image_overrides = _extract_vm_image_overrides(form, selected_vms)
-    vm_restart_order = _extract_vm_restart_order(form, selected_vms)
 
     try:
         conn.execute(
             """
             UPDATE plans SET
-                name = ?, source_ak = ?, source_sk_encrypted = ?, source_region = ?, selected_vms = ?,
-                source_vpc_id = ?, target_type = ?, target_region = ?, target_ak = ?, target_sk_encrypted = ?,
-                target_subregion = ?,
+                name = ?, source_ak = ?, source_sk_encrypted = ?, source_region = ?,
+                target_type = ?, target_region = ?, target_ak = ?, target_sk_encrypted = ?,
                 sync_endpoint = ?, sync_bucket = ?, sync_ak = ?,
                 sync_sk_encrypted = ?, target_retain_count = ?, snapshot_frequency = ?, source_retain_count = ?,
-                vm_image_overrides = ?, auto_sync_target = ?, vm_restart_order = ?
+                auto_sync_target = ?
             WHERE id = ?
             """,
             (
-                name, source_ak, source_sk_encrypted, source_region, json.dumps(selected_vms),
-                source_vpc_id, target_type, target_region, target_ak, target_sk_encrypted,
-                target_subregion,
+                name, source_ak, source_sk_encrypted, source_region,
+                target_type, target_region, target_ak, target_sk_encrypted,
                 sync_endpoint, sync_bucket, sync_ak,
                 sync_sk_encrypted, target_retain_count, snapshot_frequency, source_retain_count,
-                json.dumps(vm_image_overrides),
                 1 if auto_sync_target else 0,
-                json.dumps(vm_restart_order),
                 plan_id,
             ),
         )
@@ -790,12 +782,14 @@ async def plan_edit_submit(
     except Exception:
         conn.close()
         snapshot_freq = scheduling.parse_cron(snapshot_frequency)
+        edit_plan_vpcs = list_plan_vpcs(plan_id)
         return templates.TemplateResponse(
             "admin/plan_form.html",
             {
                 "request": request, "user": user, "error": "Un plan porte déjà ce nom", "plan": existing,
-                "snapshot_freq": snapshot_freq, "existing_vm_ids": selected_vms,
-                "existing_vm_image_overrides": vm_image_overrides, "existing_vm_restart_order": vm_restart_order,
+                "plan_vpcs": edit_plan_vpcs,
+                "restart_orders_by_plan_vpc_id": {pv["id"]: _restart_order_for_vpc(existing, pv) for pv in edit_plan_vpcs},
+                "snapshot_freq": snapshot_freq,
                 "plan_running": plan_id in running_plan_ids(),
             },
             status_code=400,
@@ -856,13 +850,14 @@ def plan_scan_vms(
     target_sk: str = Form(""),
     target_region: str = Form(""),
     plan_id: str = Form(""),
+    plan_vpc_id: str = Form(""),
 ):
     user = require_operator(request)
     if isinstance(user, RedirectResponse):
         return user
 
     source_sk = _resolve_source_sk(source_sk, plan_id)
-    source_vpc_id = _resolve_source_vpc_id(source_vpc_id, plan_id)
+    source_vpc_id = _resolve_source_vpc_id(source_vpc_id, plan_vpc_id)
 
     try:
         selected_ids = set(json.loads(existing_selected_vms))
@@ -973,8 +968,31 @@ def plan_scan_vpcs(
     )
 
 
-@router.post("/plans/{plan_id}/vpc-source")
-def plan_apply_source_vpc(request: Request, plan_id: int, source_vpc_id: str = Form("")):
+@router.post("/plans/{plan_id}/vpcs")
+def plan_vpc_add(request: Request, plan_id: int):
+    """Ajoute un nouveau bloc VPC à un plan (voir CLAUDE.MD, section « Plans
+    multi-VPC ») — ligne `plan_vpcs` vide, à compléter (VPC source, AZ cible,
+    VPC cible, VMs) depuis le bloc rendu ci-dessous."""
+    user = require_operator(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    conn = get_connection()
+    plan = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    conn.close()
+    if plan is None:
+        return RedirectResponse("/admin/plans", status_code=303)
+
+    plan_vpc_id = create_plan_vpc(plan_id)
+    log_event(request, user["username"], "plan_vpc_ajoute", f"{plan['name']} : bloc #{plan_vpc_id}")
+    return templates.TemplateResponse(
+        "admin/_plan_vpc_block.html",
+        {"request": request, "plan": plan, "plan_vpc": get_plan_vpc(plan_vpc_id), "existing_vm_restart_order": {}},
+    )
+
+
+@router.post("/plans/{plan_id}/vpcs/{plan_vpc_id}/vpc-source")
+def plan_vpc_apply_source(request: Request, plan_id: int, plan_vpc_id: int, source_vpc_id: str = Form("")):
     user = require_operator(request)
     if isinstance(user, RedirectResponse):
         return user
@@ -985,44 +1003,59 @@ def plan_apply_source_vpc(request: Request, plan_id: int, source_vpc_id: str = F
             {"request": request, "error": "Sélectionne un VPC dans la liste avant d'appliquer.", "vpc_id": None},
         )
 
-    conn = get_connection()
-    existing = conn.execute("SELECT id FROM plans WHERE id = ?", (plan_id,)).fetchone()
-    if existing is None:
-        conn.close()
+    plan_vpc = get_plan_vpc(plan_vpc_id)
+    if plan_vpc is None or plan_vpc["plan_id"] != plan_id:
         return templates.TemplateResponse(
             "admin/_vpc_source_status.html",
-            {"request": request, "error": "Plan introuvable.", "vpc_id": None},
+            {"request": request, "error": "VPC de plan introuvable.", "vpc_id": None},
         )
 
-    conn.execute("UPDATE plans SET source_vpc_id = ? WHERE id = ?", (source_vpc_id, plan_id))
-    conn.commit()
-    conn.close()
+    update_plan_vpc(plan_vpc_id, source_vpc_id=source_vpc_id)
     return templates.TemplateResponse(
         "admin/_vpc_source_status.html", {"request": request, "error": None, "vpc_id": source_vpc_id}
     )
 
 
-@router.post("/plans/{plan_id}/vpc-cible")
-def plan_create_target_vpc(request: Request, plan_id: int, delete_old: str = Form("")):
+@router.post("/plans/{plan_id}/vpcs/{plan_vpc_id}/az")
+def plan_vpc_set_az(request: Request, plan_id: int, plan_vpc_id: int, target_subregion: str = Form("")):
+    user = require_operator(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    plan_vpc = get_plan_vpc(plan_vpc_id)
+    if plan_vpc is None or plan_vpc["plan_id"] != plan_id:
+        return templates.TemplateResponse(
+            "admin/_vpc_az_status.html", {"request": request, "error": "VPC de plan introuvable.", "target_subregion": None}
+        )
+
+    update_plan_vpc(plan_vpc_id, target_subregion=target_subregion or None)
+    return templates.TemplateResponse(
+        "admin/_vpc_az_status.html", {"request": request, "error": None, "target_subregion": target_subregion}
+    )
+
+
+@router.post("/plans/{plan_id}/vpcs/{plan_vpc_id}/vpc-cible")
+def plan_vpc_create_target(request: Request, plan_id: int, plan_vpc_id: int, delete_old: str = Form("")):
     user = require_operator(request)
     if isinstance(user, RedirectResponse):
         return user
 
     conn = get_connection()
     plan = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    plan_vpc = get_plan_vpc(plan_vpc_id)
 
-    if plan is None or not plan["source_vpc_id"]:
+    if plan is None or plan_vpc is None or plan_vpc["plan_id"] != plan_id or not plan_vpc["source_vpc_id"]:
         conn.close()
         return templates.TemplateResponse(
             "admin/_vpc_target_status.html",
-            {"request": request, "error": "Sélectionne un VPC source et enregistre le plan avant de créer le VPC cible.", "result": None},
+            {"request": request, "error": "Sélectionne un VPC source pour ce bloc avant de créer le VPC cible.", "result": None},
         )
 
-    if not plan["target_subregion"]:
+    if not plan_vpc["target_subregion"]:
         conn.close()
         return templates.TemplateResponse(
             "admin/_vpc_target_status.html",
-            {"request": request, "error": "AZ cible requise (page Modifier) avant de créer le VPC cible.", "result": None},
+            {"request": request, "error": "AZ cible requise (ci-dessus) avant de créer le VPC cible.", "result": None},
         )
 
     if plan["target_type"] == "autre_region":
@@ -1047,23 +1080,28 @@ def plan_create_target_vpc(request: Request, plan_id: int, delete_old: str = For
             {"request": request, "error": "octl n'est pas installé sur ce serveur.", "result": None},
         )
 
-    old_vpc_id = plan["target_vpc_id"]
+    old_vpc_id = plan_vpc["target_vpc_id"]
     old_vpc_deletion = None
     if old_vpc_id:
-        # Un VPC cible existe déjà pour ce plan : on en crée un autre plus
-        # bas, donc l'ancien (et son mapping de VMs cible) sort de la
-        # configuration du plan dans tous les cas — supprimé en plus si
+        # Un VPC cible existe déjà pour ce bloc : on en crée un autre plus
+        # bas, donc l'ancien (et le mapping des VM de CE VPC uniquement) sort
+        # de la configuration du plan dans tous les cas — supprimé en plus si
         # demandé, sinon simplement laissé orphelin sur le compte cible.
+        vm_ids = selected_vms_of(plan_vpc)
         if delete_old:
-            old_vpc_deletion = delete_target_vpc(plan, target_ak, target_sk, target_region, old_vpc_id)
-        conn.execute("DELETE FROM vm_targets WHERE plan_id = ?", (plan_id,))
-        conn.commit()
+            old_vpc_deletion = delete_target_vpc(plan, target_ak, target_sk, target_region, old_vpc_id, vm_ids=vm_ids)
+        if vm_ids:
+            conn.execute(
+                f"DELETE FROM vm_targets WHERE plan_id = ? AND source_vm_id IN ({','.join('?' * len(vm_ids))})",
+                [plan_id, *vm_ids],
+            )
+            conn.commit()
 
     source_sk = decrypt(plan["source_sk_encrypted"]) if plan["source_sk_encrypted"] else ""
     result, error = None, None
     try:
         source_vpcs = octl.list_vpcs(plan["source_ak"], source_sk, plan["source_region"])
-        source_vpc = next((v for v in source_vpcs if v.get("NetId") == plan["source_vpc_id"]), None)
+        source_vpc = next((v for v in source_vpcs if v.get("NetId") == plan_vpc["source_vpc_id"]), None)
         if source_vpc is None:
             raise octl.OctlError("VPC source introuvable sur le compte (supprimé ?).")
 
@@ -1076,8 +1114,7 @@ def plan_create_target_vpc(request: Request, plan_id: int, delete_old: str = For
             tags=source_vpc.get("Tags", []),
         )
         target_vpc_id = target_vpc.get("NetId") if isinstance(target_vpc, dict) else None
-        conn.execute("UPDATE plans SET target_vpc_id = ? WHERE id = ?", (target_vpc_id, plan_id))
-        conn.commit()
+        update_plan_vpc(plan_vpc_id, target_vpc_id=target_vpc_id)
         log_event(request, user["username"], "plan_vpc_cible_cree", f"{plan['name']} : {target_vpc_id}")
         result = {
             "vpc_id": target_vpc_id, "ip_range": source_vpc["IpRange"], "sync_summary": None, "sync_error": None,
@@ -1085,7 +1122,13 @@ def plan_create_target_vpc(request: Request, plan_id: int, delete_old: str = For
         }
 
         try:
-            result["sync_summary"] = sync_target_network(plan, target_ak, target_sk, target_region, target_vpc_id)
+            all_plan_vpcs = list_plan_vpcs(plan_id)
+            peering_target_id_by_source_id = sync_net_peerings(plan, all_plan_vpcs, target_ak, target_sk, target_region)
+            result["sync_summary"] = sync_target_network(
+                plan, target_ak, target_sk, target_region,
+                plan_vpc["source_vpc_id"], target_vpc_id, plan_vpc["target_subregion"],
+                peering_target_id_by_source_id,
+            )
         except octl.OctlError as exc:
             result["sync_error"] = str(exc)
     except octl.OctlError as exc:
@@ -1095,6 +1138,76 @@ def plan_create_target_vpc(request: Request, plan_id: int, delete_old: str = For
     return templates.TemplateResponse(
         "admin/_vpc_target_status.html", {"request": request, "result": result, "error": error}
     )
+
+
+@router.post("/plans/{plan_id}/vpcs/{plan_vpc_id}/vms")
+async def plan_vpc_save_vms(request: Request, plan_id: int, plan_vpc_id: int, selected_vms: list[str] = Form([])):
+    """Enregistre la sélection de VM (et l'ordre de démarrage à la bascule,
+    et les OMI cible) pour CE VPC du plan uniquement. `vm_restart_order`
+    reste un champ plan-level (flat — voir app/failover.py::resolve_start_order,
+    l'ordre s'applique à toutes les VM du plan quel que soit leur VPC) :
+    seules les clés des VM de ce bloc sont mises à jour, celles des autres
+    VPC du plan sont préservées."""
+    user = require_operator(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    plan_vpc = get_plan_vpc(plan_vpc_id)
+    if plan_vpc is None or plan_vpc["plan_id"] != plan_id:
+        return RedirectResponse(f"/admin/plans/{plan_id}/modifier", status_code=303)
+
+    form = await request.form()
+    vm_image_overrides = _extract_vm_image_overrides(form, selected_vms)
+    block_restart_order = _extract_vm_restart_order(form, selected_vms)
+
+    conn = get_connection()
+    plan = conn.execute("SELECT vm_restart_order FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    conn.close()
+    restart_order = json.loads(plan["vm_restart_order"] or "{}") if plan else {}
+    for vm_id in selected_vms_of(plan_vpc):
+        restart_order.pop(vm_id, None)
+    restart_order.update(block_restart_order)
+
+    update_plan_vpc(
+        plan_vpc_id,
+        selected_vms=json.dumps(selected_vms), vm_image_overrides=json.dumps(vm_image_overrides),
+    )
+    conn = get_connection()
+    conn.execute("UPDATE plans SET vm_restart_order = ? WHERE id = ?", (json.dumps(restart_order), plan_id))
+    conn.commit()
+    conn.close()
+    log_event(request, user["username"], "plan_vpc_vms_enregistrees", f"plan_id={plan_id} plan_vpc_id={plan_vpc_id}")
+
+    return templates.TemplateResponse("admin/_vpc_vms_status.html", {"request": request, "count": len(selected_vms)})
+
+
+@router.post("/plans/{plan_id}/vpcs/{plan_vpc_id}/supprimer")
+def plan_vpc_remove(request: Request, plan_id: int, plan_vpc_id: int):
+    """Retire un VPC de la configuration du plan — supprime aussi son VPC
+    cible et ses VM cible (best-effort, voir delete_target_vpc), scopé aux
+    VM de CE VPC uniquement (les autres VPC du plan ne sont pas affectés)."""
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    conn = get_connection()
+    plan = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    conn.close()
+    plan_vpc = get_plan_vpc(plan_vpc_id)
+    if plan is None or plan_vpc is None or plan_vpc["plan_id"] != plan_id:
+        return RedirectResponse(f"/admin/plans/{plan_id}/modifier", status_code=303)
+
+    if plan_vpc["target_vpc_id"] and octl.is_available():
+        target_ak, target_sk, target_region, error = resolve_target_credentials(plan)
+        if not error:
+            delete_target_vpc(
+                plan, target_ak, target_sk, target_region, plan_vpc["target_vpc_id"],
+                vm_ids=selected_vms_of(plan_vpc),
+            )
+
+    delete_plan_vpc(plan_vpc_id)
+    log_event(request, user["username"], "plan_vpc_supprime", f"{plan['name']} : bloc #{plan_vpc_id}")
+    return RedirectResponse(f"/admin/plans/{plan_id}/modifier", status_code=303)
 
 
 @router.post("/plans/{plan_id}/desactiver")
@@ -1372,12 +1485,13 @@ RESOURCE_LABELS = {
 }
 
 
-def _resource_comparison(plan) -> dict:
+def _resource_comparison(plan, plan_vpc) -> dict:
     """Construit le tableau de comparaison VPC source / VPC cible affiché
-    sur la page Visualiser : décompte par type de ressource (source depuis
-    le cache rescanné toutes les heures, cible en direct) et détection d'un
-    écart entre les deux."""
-    cached = get_cached_source_counts(plan["id"])
+    sur la page Visualiser, pour UN VPC du plan (un plan peut en avoir
+    plusieurs, voir app/plan_vpcs.py) : décompte par type de ressource
+    (source depuis le cache rescanné toutes les heures, cible en direct) et
+    détection d'un écart entre les deux."""
+    cached = get_cached_source_counts(plan_vpc["id"])
     source_error = cached["error"] if cached else None
     source_counts = None
     if cached and cached["error"] is None:
@@ -1391,7 +1505,7 @@ def _resource_comparison(plan) -> dict:
 
     target_counts = None
     target_error = None
-    if not plan["target_vpc_id"]:
+    if not plan_vpc["target_vpc_id"]:
         target_error = "VPC cible non créé."
     elif not octl.is_available():
         target_error = "octl n'est pas installé sur ce serveur."
@@ -1401,7 +1515,7 @@ def _resource_comparison(plan) -> dict:
             target_error = error
         else:
             try:
-                target_counts = count_vpc_resources(target_ak, target_sk, target_region, plan["target_vpc_id"])
+                target_counts = count_vpc_resources(target_ak, target_sk, target_region, plan_vpc["target_vpc_id"])
             except octl.OctlError as exc:
                 target_error = str(exc)
 
@@ -1464,18 +1578,26 @@ def plan_view(request: Request, plan_id: int):
 
     plan_jobs = jobs_for_plan(plan_id)
     latest_plan_job = plan_jobs[0] if plan_jobs else None
+    vpc_rows = [{"plan_vpc": pv, "resources": _resource_comparison(plan, pv)} for pv in list_plan_vpcs(plan_id)]
+    failover_state = json.loads(plan["failover_state"] or "{}")
+    # Un plan à plusieurs VPC a une NAT Gateway par VPC (voir
+    # scripts/run_bascule.py) : failover_state["nats"] est une liste ;
+    # l'ancien format à objet unique ("nat") est aussi lu pour un plan resté
+    # en Test PRA/Basculé depuis avant la mise à jour vers le multi-VPC.
+    failover_nats = failover_state.get("nats") or ([failover_state["nat"]] if failover_state.get("nat") else [])
 
     return templates.TemplateResponse(
         "admin/plan_view.html",
         {
             "request": request,
             "user": user,
-            "failover_state": json.loads(plan["failover_state"] or "{}"),
+            "failover_state": failover_state,
+            "failover_nats": failover_nats,
             "plan": plan,
             "octl_available": octl.is_available(),
             "vm_rows": vm_rows,
             "last_full_snapshot": last_full_snapshot,
-            "resources": _resource_comparison(plan),
+            "vpc_rows": vpc_rows,
             "plan_jobs": plan_jobs,
             "latest_plan_job": latest_plan_job,
             "latest_plan_job_logs": get_job_logs(latest_plan_job["id"]) if latest_plan_job else [],
@@ -1486,8 +1608,9 @@ def plan_view(request: Request, plan_id: int):
 
 @router.post("/plans/{plan_id}/visualiser/rescan-source")
 def plan_view_rescan_source(request: Request, plan_id: int):
-    """Rescan manuel du VPC source (le même rescan tourne automatiquement
-    toutes les heures pour tous les plans — voir app/resource_scan.py)."""
+    """Rescan manuel des VPC source du plan (le même rescan tourne
+    automatiquement toutes les heures pour tous les plans — voir
+    app/resource_scan.py)."""
     user = require_operator(request)
     if isinstance(user, RedirectResponse):
         return user
@@ -1496,15 +1619,17 @@ def plan_view_rescan_source(request: Request, plan_id: int):
     plan = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
     conn.close()
     if plan is not None:
-        scan_and_cache_source(plan)
+        for plan_vpc in list_plan_vpcs(plan_id):
+            scan_and_cache_source(plan, plan_vpc)
 
     return RedirectResponse(f"/admin/plans/{plan_id}/visualiser", status_code=303)
 
 
-@router.post("/plans/{plan_id}/visualiser/scan/{resource_type}")
-def plan_view_scan_target(request: Request, plan_id: int, resource_type: str):
+@router.post("/plans/{plan_id}/visualiser/{plan_vpc_id}/scan/{resource_type}")
+def plan_view_scan_target(request: Request, plan_id: int, plan_vpc_id: int, resource_type: str):
     """Scanne une ressource (subnets/security groups/route tables) côté
-    compte cible et ne garde que celles qui appartiennent au VPC de PRA."""
+    compte cible et ne garde que celles qui appartiennent au VPC de PRA
+    correspondant à ce VPC du plan."""
     user = require_operator(request)
     if isinstance(user, RedirectResponse):
         return user
@@ -1519,12 +1644,13 @@ def plan_view_scan_target(request: Request, plan_id: int, resource_type: str):
     conn = get_connection()
     plan = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
     conn.close()
-    if plan is None:
+    plan_vpc = get_plan_vpc(plan_vpc_id)
+    if plan is None or plan_vpc is None:
         return templates.TemplateResponse(
-            "admin/_resource_list.html", {"request": request, "items": None, "error": "Plan introuvable."}
+            "admin/_resource_list.html", {"request": request, "items": None, "error": "Plan ou VPC introuvable."}
         )
 
-    if not plan["target_vpc_id"]:
+    if not plan_vpc["target_vpc_id"]:
         return templates.TemplateResponse(
             "admin/_resource_list.html",
             {"request": request, "items": None, "error": "VPC cible non créé — crée-le depuis la page Modifier du plan."},
@@ -1544,7 +1670,7 @@ def plan_view_scan_target(request: Request, plan_id: int, resource_type: str):
 
     try:
         items = scan_fn(target_ak, target_sk, target_region)
-        items = [item for item in items if item.get(net_id_field) == plan["target_vpc_id"]]
+        items = [item for item in items if item.get(net_id_field) == plan_vpc["target_vpc_id"]]
         error = None
     except octl.OctlError as exc:
         items = None
@@ -1557,8 +1683,11 @@ def plan_view_scan_target(request: Request, plan_id: int, resource_type: str):
 
 @router.post("/plans/{plan_id}/visualiser/resync")
 def plan_view_resync(request: Request, plan_id: int):
-    """Resynchronise les ressources réseau du VPC de PRA depuis le VPC
-    source (voir app.target.sync_target_network)."""
+    """Resynchronise les ressources réseau de tous les VPC de PRA du plan
+    depuis leurs VPC source respectifs (voir app.target.sync_target_network),
+    puis recrée les Net Peering manquants entre eux (voir
+    app.target.sync_net_peerings) — dans cet ordre, pour que les routes vers
+    ces peerings puissent être recréées dans la même passe."""
     user = require_operator(request)
     if isinstance(user, RedirectResponse):
         return user
@@ -1568,43 +1697,49 @@ def plan_view_resync(request: Request, plan_id: int):
     conn.close()
     if plan is None:
         return templates.TemplateResponse(
-            "admin/_resync_result.html", {"request": request, "error": "Plan introuvable.", "summary": None}
+            "admin/_resync_result.html", {"request": request, "error": "Plan introuvable.", "summaries": None}
         )
 
-    if not (plan["source_vpc_id"] and plan["target_vpc_id"]):
+    plan_vpcs = [pv for pv in list_plan_vpcs(plan_id) if pv["source_vpc_id"] and pv["target_vpc_id"] and pv["target_subregion"]]
+    if not plan_vpcs:
         return templates.TemplateResponse(
             "admin/_resync_result.html",
-            {"request": request, "error": "VPC source et VPC cible requis avant de resynchroniser.", "summary": None},
-        )
-
-    if not plan["target_subregion"]:
-        return templates.TemplateResponse(
-            "admin/_resync_result.html",
-            {"request": request, "error": "AZ cible requise (page Modifier) avant de resynchroniser.", "summary": None},
+            {"request": request, "error": "Aucun VPC de ce plan n'a de VPC source, VPC cible et AZ cible complets.", "summaries": None},
         )
 
     if not octl.is_available():
         return templates.TemplateResponse(
             "admin/_resync_result.html",
-            {"request": request, "error": "octl n'est pas installé sur ce serveur.", "summary": None},
+            {"request": request, "error": "octl n'est pas installé sur ce serveur.", "summaries": None},
         )
 
     target_ak, target_sk, target_region, error = resolve_target_credentials(plan)
     if error:
         return templates.TemplateResponse(
-            "admin/_resync_result.html", {"request": request, "error": error, "summary": None}
+            "admin/_resync_result.html", {"request": request, "error": error, "summaries": None}
         )
 
     try:
-        summary = sync_target_network(plan, target_ak, target_sk, target_region, plan["target_vpc_id"])
+        peering_target_id_by_source_id = sync_net_peerings(plan, plan_vpcs, target_ak, target_sk, target_region)
+        summaries = [
+            {
+                "plan_vpc": pv,
+                "summary": sync_target_network(
+                    plan, target_ak, target_sk, target_region,
+                    pv["source_vpc_id"], pv["target_vpc_id"], pv["target_subregion"],
+                    peering_target_id_by_source_id,
+                ),
+            }
+            for pv in plan_vpcs
+        ]
         error = None
         log_event(request, user["username"], "plan_resync_manuel", plan["name"])
     except octl.OctlError as exc:
-        summary = None
+        summaries = None
         error = str(exc)
 
     return templates.TemplateResponse(
-        "admin/_resync_result.html", {"request": request, "summary": summary, "error": error}
+        "admin/_resync_result.html", {"request": request, "summaries": summaries, "error": error}
     )
 
 
@@ -1654,7 +1789,12 @@ def sandbox_list(request: Request):
         ORDER BY sandboxes.created_at DESC
         """
     ).fetchall()
+    vpc_ids_by_sandbox = {}
+    for row in conn.execute("SELECT sandbox_id, vpc_id FROM sandbox_vpcs WHERE vpc_id IS NOT NULL").fetchall():
+        vpc_ids_by_sandbox.setdefault(row["sandbox_id"], []).append(row["vpc_id"])
     conn.close()
+
+    sandboxes = [{**dict(row), "vpc_ids": vpc_ids_by_sandbox.get(row["id"], [])} for row in sandboxes]
 
     return templates.TemplateResponse(
         "admin/sandbox_list.html",
@@ -1680,6 +1820,9 @@ def sandbox_view(request: Request, sandbox_id: int):
     vm_targets = conn.execute(
         "SELECT * FROM sandbox_vm_targets WHERE sandbox_id = ?", (sandbox_id,)
     ).fetchall() if sandbox else []
+    sandbox_vpcs = conn.execute(
+        "SELECT * FROM sandbox_vpcs WHERE sandbox_id = ?", (sandbox_id,)
+    ).fetchall() if sandbox else []
     conn.close()
     if sandbox is None:
         return RedirectResponse("/admin/sandbox", status_code=303)
@@ -1688,6 +1831,7 @@ def sandbox_view(request: Request, sandbox_id: int):
         "admin/sandbox_view.html",
         {
             "request": request, "user": user, "sandbox": sandbox, "vm_targets": vm_targets,
+            "sandbox_vpcs": sandbox_vpcs,
             "state": json.loads(sandbox["state"] or "{}"), "status_labels": SANDBOX_STATUS_LABELS,
         },
     )

@@ -2,14 +2,17 @@
 
 Chantiers identifiés, à prioriser.
 
-## Gestion d'un PRA multi VPC
+## ~~Gestion d'un PRA multi VPC~~ — fait le 2026-07-31
 
-- Aujourd'hui, un plan de reprise réplique un seul VPC source vers un seul
-  VPC cible. Permettre à un plan (ou à un regroupement de plans) de couvrir
-  plusieurs VPC source en une seule bascule cohérente (ordre de démarrage
-  inter-VPC, EIP/NAT par VPC, vue d'ensemble multi-VPC sur le dashboard) —
-  à préciser (un plan = plusieurs VPC, ou un groupe de plans basculés
-  ensemble ?).
+- Un plan de reprise peut désormais répliquer plusieurs VPC source (table
+  `plan_vpcs`, voir `app/plan_vpcs.py` et CLAUDE.MD section *Création de
+  Plan de reprise*) : AZ cible par VPC, VPC cible par VPC, Bascule PRA et
+  Sandbox couvrant tous les VPC du plan en une seule fois (ordre de
+  démarrage déjà plan-level, EIP/NAT par VPC). Net Peering entre les VPC du
+  plan détecté côté source et recréé automatiquement côté cible
+  (`app/target.py::sync_net_peerings`) — jamais exécuté contre un compte
+  réel, voir *Statut expérimental* dans CLAUDE.MD. Migration additive
+  automatique des plans mono-VPC existants au démarrage.
 
 ## Mise en place du reporting
 
@@ -125,10 +128,12 @@ Limitations déjà identifiées dans le code (`app/restore.py`,
 `scripts/run_plan.py`) et non couvertes par les points ci-dessus :
 
 - Réplication cross-région (export/import de snapshot via S3).
-- Resync réseau : routes vers un Net peering ou une passerelle VPN non
-  répliquées (ressources elles-mêmes hors scope) ; EIP et NAT Gateway
-  volontairement exclus du resync, repris seulement à la bascule (voir
-  *Bascule PRA et Sandbox* ci-dessous, fait le 2026-07-30).
+- Resync réseau : routes vers une passerelle VPN non répliquées (ressource
+  hors scope) ; EIP et NAT Gateway volontairement exclus du resync, repris
+  seulement à la bascule (voir *Bascule PRA et Sandbox* ci-dessous, fait le
+  2026-07-30). Les Net Peering entre VPC d'un même plan, eux, SONT
+  répliqués depuis la gestion du multi-VPC (fait le 2026-07-31, voir
+  section dédiée ci-dessus) — plus une limitation.
 - Restauration BSU : ne gère que les devices déjà présents sur la VM
   cible lors d'un cycle de mise à jour (un nouveau volume attaché côté
   source après la création de la VM cible n'est pas répliqué

@@ -14,9 +14,11 @@ Suivi des chantiers en cours : [TODO.md](TODO.md)
 
 ## Fonctionnement
 
-Un **plan de reprise** relie un compte/VPC source à un compte/VPC cible et
-liste les VMs à répliquer. Selon la fréquence configurée, un job planifié
-(cron) exécute pour chaque VM sélectionnée :
+Un **plan de reprise** relie un compte source à un compte cible et couvre
+un ou plusieurs VPC source (chacun avec son propre VPC cible et sa propre
+AZ cible — voir *VPC du plan* dans [CLAUDE.MD](CLAUDE.MD)), chacun listant
+les VMs à répliquer. Selon la fréquence configurée, un job planifié (cron)
+exécute pour chaque VM sélectionnée, tous VPC du plan confondus :
 
 ### Cible dans la même région
 
@@ -47,17 +49,19 @@ explicitement plutôt que de tenter une restauration.
 
 ### Resynchronisation des ressources réseau
 
-Le VPC cible (« VPC de PRA ») doit être créé une première fois depuis la
-page *Modifier* d'un plan. Pour que la création de VM cible fonctionne
+Chaque VPC cible (« VPC de PRA ») doit être créé une première fois depuis
+la page *Modifier* d'un plan. Pour que la création de VM cible fonctionne
 (étape 2), le VPC cible a aussi besoin des subnets, security groups,
 internet service et tables de routage correspondants côté source
 (`app.target.sync_target_network`) : les objets manquants côté cible
 (identifiés par leur tag `Name`) sont recréés à l'identique, avec les
-règles de security group et les routes (hors routes vers un Net peering
-ou une passerelle VPN, non répliquées — voir *Connu, non planifié* dans
-[TODO.md](TODO.md)). Tous les tags de la ressource source sont repris sur
-son équivalent cible (pas seulement `Name`), remis en phase à chaque
-cycle.
+règles de security group et les routes (hors routes vers une passerelle
+VPN, non répliquées — voir *Connu, non planifié* dans [TODO.md](TODO.md)).
+Si plusieurs VPC du plan sont peerés entre eux côté source, le Net Peering
+équivalent est détecté et recréé automatiquement côté cible
+(`app.target.sync_net_peerings`), routes de peering comprises. Tous les
+tags de la ressource source sont repris sur son équivalent cible (pas
+seulement `Name`), remis en phase à chaque cycle.
 
 Cette resynchronisation se déclenche de deux façons : automatiquement à
 chaque exécution planifiée du plan si l'option **Mise à jour du VPC cible

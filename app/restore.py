@@ -32,7 +32,6 @@ _record_root_restore) et affichée sur la page du plan.
 Cross-région (nécessite l'export/import via S3) n'est pas géré ici — voir
 CLAUDE.MD, section « Cross région ».
 """
-import json
 import time
 
 from app import octl
@@ -373,7 +372,7 @@ def _refresh_target_vm(
 def restore_vm(
     plan, target_ak: str, target_sk: str, target_region: str, source_vm: dict, source_subnet: dict,
     source_volumes_by_id: dict, snapshots_by_volume: dict, job_id: int,
-    target_vpc_id: str | None = None, sandbox_id: int | None = None,
+    target_vpc_id: str | None = None, sandbox_id: int | None = None, image_override: str | None = None,
 ) -> str:
     """Point d'entrée appelé par scripts/run_plan.py après un snapshot
     réussi : crée la VM cible si besoin, puis remplace ses volumes par des
@@ -387,7 +386,13 @@ def restore_vm(
     (indépendant du VPC de PRA persistant du plan) : le mapping VM
     source -> VM sandbox est alors mémorisé dans `sandbox_vm_targets`
     plutôt que `vm_targets`. Sans ces paramètres, comportement inchangé
-    (VPC et mapping persistants du plan)."""
+    (VPC et mapping persistants du plan).
+
+    `image_override` : OMI cible pour CETTE VM (résolue par l'appelant
+    depuis `plan_vpcs.vm_image_overrides` — un plan pouvant avoir plusieurs
+    VPC, voir app/plan_vpcs.py, l'override est propre au VPC de cette VM,
+    pas au plan) — `None` si aucune n'est configurée, l'OMI source est
+    alors reprise telle quelle."""
     effective_target_vpc_id = target_vpc_id or plan["target_vpc_id"]
     if not effective_target_vpc_id:
         raise RestoreError(
@@ -399,8 +404,7 @@ def restore_vm(
 
     if target_vm_id is None:
         log_step(job_id, "Aucune VM cible existante — création d'une nouvelle VM cible.")
-        image_overrides = json.loads(plan["vm_image_overrides"] or "{}")
-        image_id = image_overrides.get(source_vm_id) or source_vm["ImageId"]
+        image_id = image_override or source_vm["ImageId"]
         target_vm_id, root_snapshot_id = _create_target_vm(
             plan, target_ak, target_sk, target_region, source_vm, source_subnet,
             source_volumes_by_id, snapshots_by_volume, image_id, job_id, effective_target_vpc_id,

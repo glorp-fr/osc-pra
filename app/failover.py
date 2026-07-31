@@ -232,10 +232,15 @@ def _target_vm_ids_by_source(plan_id: int) -> dict:
 
 
 def end_test(plan, target_ak: str, target_sk: str, target_region: str, job_id: int) -> None:
-    """Démonte les EIP et la NAT Gateway de test, stoppe les VM cible —
+    """Démonte les EIP et la/les NAT Gateway de test, stoppe les VM cible —
     utilisé par scripts/end_test.py (bouton « Terminer le test »). Ne
     s'applique jamais à une Activation réelle (EIP/NAT de prod jamais
-    démontées automatiquement)."""
+    démontées automatiquement). Un plan à plusieurs VPC (voir
+    app/plan_vpcs.py) a une NAT Gateway par VPC : `state["nats"]` est une
+    liste (une entrée par VPC créée par scripts/run_bascule.py) ; l'ancien
+    format `state["nat"]` (objet unique, plans en `test_en_cours` au moment
+    d'une mise à jour vers la version multi-VPC) est aussi lu pour ne pas
+    laisser un test déjà en cours bloqué."""
     state = json.loads(plan["failover_state"] or "{}")
 
     for source_vm_id, target_vm_id in _target_vm_ids_by_source(plan["id"]).items():
@@ -257,16 +262,17 @@ def end_test(plan, target_ak: str, target_sk: str, target_region: str, job_id: i
             except octl.OctlError as exc:
                 log_step(job_id, f"Échec de la suppression de l'EIP {eip.get('public_ip')} : {exc}", level="error")
 
-    nat = state.get("nat") or {}
-    if nat.get("nat_service_id"):
-        try:
-            octl.delete_nat_service(target_ak, target_sk, target_region, nat["nat_service_id"])
-        except octl.OctlError as exc:
-            log_step(job_id, f"Échec de la suppression de la NAT Gateway de test : {exc}", level="error")
-        if nat.get("public_ip_id") and not nat.get("reused"):
+    nats = state.get("nats") or ([state["nat"]] if state.get("nat") else [])
+    for nat in nats:
+        if nat.get("nat_service_id"):
             try:
-                octl.delete_public_ip(target_ak, target_sk, target_region, nat["public_ip_id"])
+                octl.delete_nat_service(target_ak, target_sk, target_region, nat["nat_service_id"])
             except octl.OctlError as exc:
-                log_step(job_id, f"Échec de la suppression de l'EIP NAT de test : {exc}", level="error")
+                log_step(job_id, f"Échec de la suppression de la NAT Gateway de test : {exc}", level="error")
+            if nat.get("public_ip_id") and not nat.get("reused"):
+                try:
+                    octl.delete_public_ip(target_ak, target_sk, target_region, nat["public_ip_id"])
+                except octl.OctlError as exc:
+                    log_step(job_id, f"Échec de la suppression de l'EIP NAT de test : {exc}", level="error")
 
     log_step(job_id, "Test terminé, VPC de PRA remis en réplique froide.")
