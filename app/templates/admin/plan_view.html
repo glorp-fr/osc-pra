@@ -194,7 +194,14 @@
               <td class="mono" style="font-size:11px;color:var(--text-muted)">{{ job.started_at }}</td>
               <td class="mono" style="font-size:12px">{{ job.vm_id or "—" }}</td>
               <td><span class="bdg {{ job.status }}">{{ {"success": "Réussi", "error": "Erreur", "running": "En cours"}[job.status] }}</span></td>
-              <td><button type="button" class="btn sm ghost icon" hx-get="/admin/jobs/{{ job.id }}/log" hx-target="#plan-job-log-panel" hx-swap="innerHTML" data-tooltip="Voir le journal" aria-label="Voir le journal">{{ macros.icon("eye") }}</button></td>
+              <td style="display:flex;gap:6px">
+                <button type="button" class="btn sm ghost icon" hx-get="/admin/jobs/{{ job.id }}/log" hx-target="#plan-job-log-panel" hx-swap="innerHTML" data-tooltip="Voir le journal" aria-label="Voir le journal">{{ macros.icon("eye") }}</button>
+                {% if job.status == "running" and user.role == "admin" %}
+                <form method="post" action="/admin/jobs/{{ job.id }}/forcer-arret" hx-confirm="Forcer ce job en erreur ? À réserver à un job visiblement bloqué (ne tue pas un éventuel processus encore actif).">
+                  <button type="submit" class="btn sm ghost icon" data-tooltip="Forcer l'arrêt" aria-label="Forcer l'arrêt">{{ macros.icon("x") }}</button>
+                </form>
+                {% endif %}
+              </td>
             </tr>
             {% endfor %}
           </tbody>

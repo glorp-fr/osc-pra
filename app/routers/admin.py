@@ -13,7 +13,7 @@ from app.audit import log_event, recent_events
 from app.auth import ROLE_LABELS, ROLES, require_admin, require_login, require_operator
 from app.crypto import decrypt, encrypt
 from app.db import DB_PATH, get_connection
-from app.jobs import get_job, get_job_logs, jobs_for_plan, last_executions_by_plan, last_job, running_plan_ids
+from app.jobs import finish_job, get_job, get_job_logs, jobs_for_plan, last_executions_by_plan, last_job, running_plan_ids
 from app.resource_scan import get_cached_source_counts, scan_and_cache_source
 from app.target import count_vpc_resources, delete_target_vpc, resolve_target_credentials, sync_target_network
 from app.templates_env import templates
@@ -1215,6 +1215,36 @@ def job_log(request: Request, job_id: int):
     job = get_job(job_id)
     logs = get_job_logs(job_id) if job else []
     return templates.TemplateResponse("admin/_job_log.html", {"request": request, "job": job, "logs": logs})
+
+
+@router.post("/jobs/{job_id}/forcer-arret")
+def job_force_stop(request: Request, job_id: int):
+    """Force le passage en erreur d'un job resté bloqué à 'running' — sans
+    attendre le nettoyage automatique au prochain redémarrage du service
+    (voir app.jobs.reconcile_orphaned_jobs). Ne tue aucun processus réel :
+    si le sous-processus tourne encore, il continuera en tâche de fond,
+    mais son résultat ne sera plus reflété par ce job une fois marqué en
+    erreur — à réserver aux jobs visiblement morts (bloqués depuis
+    longtemps, plan ou sandbox coincé sur « En cours »)."""
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    job = get_job(job_id)
+    if job is not None and job["status"] == "running":
+        finish_job(job_id, "error", "Arrêt forcé manuellement par un administrateur.")
+        conn = get_connection()
+        conn.execute(
+            "UPDATE sandboxes SET status = 'error', error = 'Arrêt forcé manuellement par un administrateur.' "
+            "WHERE job_id = ? AND status IN ('creating', 'deleting')",
+            (job_id,),
+        )
+        conn.commit()
+        conn.close()
+        log_event(request, user["username"], "job_arret_force", f"job_id={job_id}")
+
+    referer = request.headers.get("referer") or "/suivi"
+    return RedirectResponse(referer, status_code=303)
 
 
 @router.get("/plans/{plan_id}/supprimer")

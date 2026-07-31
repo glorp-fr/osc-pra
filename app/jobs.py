@@ -146,3 +146,37 @@ def last_job(job_type: str):
     ).fetchone()
     conn.close()
     return row
+
+
+def reconcile_orphaned_jobs() -> int:
+    """Marque en erreur tout job resté à 'running' au démarrage de l'app.
+
+    Les scripts (run_plan.py, run_bascule.py, end_test.py, run_sandbox.py)
+    tournent en sous-processus dans le cgroup du service osc-pra
+    (`KillMode=control-group`, voir CLAUDE.MD, section *Mise à jour depuis
+    l'UI*) : un redémarrage du service (crash, déploiement, mise à jour) les
+    tue avant qu'ils aient pu appeler finish_job. Sans ce nettoyage, un job
+    encore 'running' à ce stade — donc forcément mort — reste bloqué à ce
+    statut indéfiniment, avec lui le badge « En cours » du plan associé
+    (running_plan_ids) ou d'un sandbox lié (sandboxes.status). Appelé une
+    fois au démarrage, après init_db (voir app/main.py). Retourne le nombre
+    de jobs nettoyés.
+    """
+    conn = get_connection()
+    orphaned = conn.execute("SELECT id FROM jobs WHERE status = 'running'").fetchall()
+    for job in orphaned:
+        conn.execute(
+            "UPDATE jobs SET status = 'error', message = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?",
+            ("Interrompu par un redémarrage du service.", job["id"]),
+        )
+        conn.execute(
+            "INSERT INTO job_logs (job_id, level, message) VALUES (?, 'error', ?)",
+            (job["id"], "Job interrompu par un redémarrage du service — statut forcé à erreur au démarrage."),
+        )
+    conn.execute(
+        "UPDATE sandboxes SET status = 'error', error = 'Interrompu par un redémarrage du service.' "
+        "WHERE status IN ('creating', 'deleting')"
+    )
+    conn.commit()
+    conn.close()
+    return len(orphaned)
