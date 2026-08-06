@@ -29,7 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app import failover, octl, restore  # noqa: E402
+from app import cron, failover, octl, restore, vpc_registry  # noqa: E402
 from app.crypto import decrypt  # noqa: E402
 from app.db import get_connection  # noqa: E402
 from app.jobs import finish_job, log_step, start_job  # noqa: E402
@@ -133,6 +133,15 @@ def create(sandbox_id: int) -> None:
             )
             conn.commit()
             conn.close()
+            vpc_registry.record_created(
+                sandbox_vpc_id, "sandbox", plan["id"], plan["name"],
+                target_ak, target_region, sandbox["created_by"],
+                plan_vpc_id=plan_vpc["id"], sandbox_id=sandbox_id,
+            )
+            try:
+                cron.sync_crontab()  # (re)programme le rescan horaire du registre VPC dès la 1ère ligne
+            except cron.CronError:
+                pass
             sandbox_vpc_by_plan_vpc_id[plan_vpc["id"]] = sandbox_vpc_id
             log_step(job_id, f"VPC {sandbox_vpc_id} créé.")
 

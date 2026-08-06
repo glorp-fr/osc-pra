@@ -23,6 +23,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 
 OCTL_BIN = os.environ.get("OCTL_BIN", "octl")
 TIMEOUT_SECONDS = 30
@@ -442,8 +443,37 @@ def get_vm(ak: str, sk: str, region: str, vm_id: str) -> dict | None:
     return items[0] if items else None
 
 
-def stop_vm(ak: str, sk: str, region: str, vm_id: str) -> None:
-    _run("StopVms", ak, sk, region, "--VmIds", vm_id)
+def list_vms_by_ids(ak: str, sk: str, region: str, vm_ids: list[str]) -> list:
+    if not vm_ids:
+        return []
+    result = _run("ReadVms", ak, sk, region, "--Filters.VmIds", ",".join(vm_ids))
+    return result if isinstance(result, list) else result.get("Vms", [])
+
+
+def wait_vms_terminated(ak: str, sk: str, region: str, vm_ids: list[str], timeout: int = 90, interval: int = 5) -> set[str]:
+    """Attend que les VM listées disparaissent (ou passent à l'état
+    `terminated`) avant de rendre la main — la suppression d'une VM est
+    asynchrone côté API ; tant qu'elle n'est pas effective, les ressources
+    réseau encore attachées (subnet, security group) ne peuvent pas être
+    supprimées (voir target.py::delete_target_vpc, qui attend ce résultat
+    avant de continuer). Renvoie les VM encore présentes après le délai
+    (ensemble vide si toutes ont disparu à temps)."""
+    remaining = set(vm_ids)
+    deadline = time.monotonic() + timeout
+    while remaining:
+        vms = list_vms_by_ids(ak, sk, region, list(remaining))
+        remaining = {vm.get("VmId") for vm in vms if vm.get("State") != "terminated"} & remaining
+        if not remaining or time.monotonic() >= deadline:
+            break
+        time.sleep(interval)
+    return remaining
+
+
+def stop_vm(ak: str, sk: str, region: str, vm_id: str, force: bool = False) -> None:
+    args = ["--VmIds", vm_id]
+    if force:
+        args += ["--ForceStop", "true"]
+    _run("StopVms", ak, sk, region, *args)
 
 
 def start_vm(ak: str, sk: str, region: str, vm_id: str) -> None:

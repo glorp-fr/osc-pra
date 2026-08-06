@@ -8,7 +8,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse
 from passlib.hash import bcrypt
 
-from app import cron, octl, scheduling
+from app import cron, octl, scheduling, vpc_registry
 from app.audit import log_event, recent_events
 from app.auth import ROLE_LABELS, ROLES, require_admin, require_login, require_operator
 from app.crypto import decrypt, encrypt
@@ -1115,6 +1115,11 @@ def plan_vpc_create_target(request: Request, plan_id: int, plan_vpc_id: int, del
         )
         target_vpc_id = target_vpc.get("NetId") if isinstance(target_vpc, dict) else None
         update_plan_vpc(plan_vpc_id, target_vpc_id=target_vpc_id)
+        vpc_registry.record_created(
+            target_vpc_id, "plan_target", plan["id"], plan["name"],
+            target_ak, target_region, user["username"], plan_vpc_id=plan_vpc_id,
+        )
+        _sync_crontab_or_error()  # (re)programme le rescan horaire du registre VPC dès la 1ère ligne
         log_event(request, user["username"], "plan_vpc_cible_cree", f"{plan['name']} : {target_vpc_id}")
         result = {
             "vpc_id": target_vpc_id, "ip_range": source_vpc["IpRange"], "sync_summary": None, "sync_error": None,
@@ -1892,3 +1897,79 @@ def sandbox_delete(request: Request, sandbox_id: int):
     subprocess.Popen([cron.python_bin(), str(cron.APP_DIR / "scripts" / "run_sandbox.py"), str(sandbox_id), "delete"])
     log_event(request, user["username"], "sandbox_supprime", f"sandbox_id={sandbox_id}")
     return RedirectResponse("/admin/sandbox", status_code=303)
+
+
+# --- Registre des VPC cible --------------------------------------------------
+
+@router.get("/vpcs")
+def vpc_registry_view(request: Request):
+    """Trace de tout VPC cible créé par l'outil (VPC cible de plan ou VPC de
+    sandbox — voir app/vpc_registry.py), y compris ceux qui ne sont plus
+    référencés par la configuration courante (recréés, ou dont la
+    suppression a échoué en partie). La présence réelle sur le compte cible
+    est vérifiée toutes les heures par cron (scripts/refresh_vpc_registry.py) ;
+    « Rafraîchir maintenant » ci-dessous la revérifie tout de suite."""
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    conn = get_connection()
+    rows = conn.execute("SELECT * FROM target_vpc_registry ORDER BY created_at DESC").fetchall()
+    plan_vpc_refs = {
+        row["target_vpc_id"]: row
+        for row in conn.execute(
+            "SELECT * FROM plan_vpcs WHERE target_vpc_id IS NOT NULL AND target_vpc_id != ''"
+        ).fetchall()
+    }
+    sandbox_vpc_refs = {
+        row["vpc_id"]: row
+        for row in conn.execute(
+            """
+            SELECT sandbox_vpcs.*, sandboxes.status AS sandbox_status FROM sandbox_vpcs
+            JOIN sandboxes ON sandboxes.id = sandbox_vpcs.sandbox_id
+            WHERE sandboxes.status != 'deleted'
+            """
+        ).fetchall()
+    }
+    plans_failover_status = {
+        row["id"]: row["failover_status"] for row in conn.execute("SELECT id, failover_status FROM plans").fetchall()
+    }
+    conn.close()
+
+    usage_labels = {
+        "normal": "Dans le plan",
+        "test_en_cours": "Test PRA en cours",
+        "bascule": "Activation PRA",
+    }
+
+    entries = []
+    for row in rows:
+        entry = dict(row)
+        plan_ref = plan_vpc_refs.get(row["vpc_id"])
+        sandbox_ref = sandbox_vpc_refs.get(row["vpc_id"])
+        if plan_ref is not None:
+            fs = plans_failover_status.get(row["plan_id"], "normal")
+            entry["usage_badge"] = fs if fs in ("test_en_cours", "bascule") else "actif"
+            entry["usage_label"] = usage_labels.get(fs, "Dans le plan")
+        elif sandbox_ref is not None:
+            entry["usage_badge"] = "sandbox"
+            entry["usage_label"] = f"Sandbox #{sandbox_ref['sandbox_id']} ({sandbox_ref['sandbox_status']})"
+        else:
+            entry["usage_badge"] = "orphelin"
+            entry["usage_label"] = "Orphelin — plus référencé"
+        entries.append(entry)
+
+    return templates.TemplateResponse(
+        "admin/vpc_registry.html", {"request": request, "user": user, "entries": entries},
+    )
+
+
+@router.post("/vpcs/rafraichir")
+def vpc_registry_refresh(request: Request):
+    user = require_admin(request)
+    if isinstance(user, RedirectResponse):
+        return user
+
+    vpc_registry.refresh_all()
+    log_event(request, user["username"], "vpc_registry_rafraichi", "")
+    return RedirectResponse("/admin/vpcs", status_code=303)

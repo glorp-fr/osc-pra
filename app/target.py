@@ -7,7 +7,7 @@ explicites), appelées une fois par VPC du plan par l'appelant
 (scripts/run_plan.py, scripts/run_sandbox.py, app/routers/admin.py) —
 seule sync_net_peerings est plan-level (elle a besoin de tous les VPC
 cible déjà créés pour apparier les paires)."""
-from app import octl
+from app import octl, vpc_registry
 from app.crypto import decrypt
 from app.db import get_connection
 
@@ -531,8 +531,17 @@ def delete_target_vpc(
     ressource est traitée indépendamment : une erreur sur l'une d'elles
     n'empêche pas d'essayer les suivantes, tout est remonté dans `errors`
     plutôt que de lever OctlError, pour laisser l'appelant poursuivre même
-    en cas de nettoyage partiel."""
+    en cas de nettoyage partiel. La suppression des VM est asynchrone côté
+    API : on force leur arrêt (hard stop, plus rapide et plus fiable qu'un
+    arrêt propre côté OS) puis on attend leur disparition effective avant
+    de toucher au reste — security groups, subnets et VPC ne peuvent pas
+    être supprimés tant qu'une VM y est encore attachée, même si l'appel
+    DeleteVms a déjà été envoyé. Si une VM n'a pas disparu dans le délai
+    imparti, le reste du nettoyage est reporté (pas tenté) pour ce VPC —
+    un nouvel appel (ex. re-cliquer sur Supprimer) reprendra là où il
+    s'est arrêté."""
     errors: list[str] = []
+    vpc_registry.record_delete_attempt(target_vpc_id)
 
     conn = get_connection()
     if sandbox_id is not None:
@@ -551,23 +560,59 @@ def delete_target_vpc(
     conn.close()
 
     vms_deleted = 0
+    volume_ids_by_vm: dict[str, list[str]] = {}
     for row in targets:
         target_vm_id = row["target_vm_id"]
         try:
             vm = octl.get_vm(target_ak, target_sk, target_region, target_vm_id)
-            volume_ids = [
-                bdm["Bsu"]["VolumeId"] for bdm in (vm.get("BlockDeviceMappings", []) if vm else [])
+            if vm is None:
+                vms_deleted += 1
+                continue
+            volume_ids_by_vm[target_vm_id] = [
+                bdm["Bsu"]["VolumeId"] for bdm in vm.get("BlockDeviceMappings", [])
                 if bdm.get("Bsu", {}).get("VolumeId")
             ]
-            octl.delete_vm(target_ak, target_sk, target_region, target_vm_id)
-            for volume_id in volume_ids:
+            if vm.get("State") not in ("terminated", "shutting-down"):
                 try:
-                    octl.delete_volume(target_ak, target_sk, target_region, volume_id)
+                    octl.stop_vm(target_ak, target_sk, target_region, target_vm_id, force=True)
                 except octl.OctlError:
-                    pass  # volume racine probablement déjà supprimé (DeleteOnVmDeletion)
-            vms_deleted += 1
+                    pass  # pas bloquant : DeleteVms termine aussi une VM encore en cours d'arrêt
+            octl.delete_vm(target_ak, target_sk, target_region, target_vm_id)
         except octl.OctlError as exc:
             errors.append(f"VM cible {target_vm_id} : {exc}")
+
+    still_present = octl.wait_vms_terminated(target_ak, target_sk, target_region, list(volume_ids_by_vm))
+    for target_vm_id, volume_ids in volume_ids_by_vm.items():
+        if target_vm_id in still_present:
+            errors.append(f"VM cible {target_vm_id} : toujours présente après le délai d'attente — nouvel essai nécessaire.")
+            continue
+        for volume_id in volume_ids:
+            try:
+                octl.delete_volume(target_ak, target_sk, target_region, volume_id)
+            except octl.OctlError:
+                pass  # volume racine probablement déjà supprimé (DeleteOnVmDeletion)
+        vms_deleted += 1
+
+    if still_present:
+        # Des VM sont encore en train de disparaître : le reste (security
+        # groups, subnets, VPC) ne peut pas être supprimé tant qu'elles y
+        # sont attachées — inutile d'essayer maintenant, ça échouerait et
+        # laisserait le VPC à moitié démonté. Un nouvel appel (ex.
+        # re-cliquer sur Supprimer) reprendra une fois les VM parties.
+        result = {
+            "vms_deleted": vms_deleted,
+            "vms_total": len(targets),
+            "sgs_deleted": 0,
+            "route_tables_deleted": 0,
+            "internet_service_deleted": False,
+            "subnets_deleted": 0,
+            "vpc_deleted": False,
+            "errors": errors,
+        }
+        vpc_registry.record_delete_result(
+            target_vpc_id, f"Incomplet : {len(still_present)} VM encore présente(s), reste du nettoyage reporté."
+        )
+        return result
 
     sgs_deleted = 0
     try:
@@ -649,7 +694,7 @@ def delete_target_vpc(
     except octl.OctlError as exc:
         errors.append(f"VPC {target_vpc_id} : {exc}")
 
-    return {
+    result = {
         "vms_deleted": vms_deleted,
         "vms_total": len(targets),
         "sgs_deleted": sgs_deleted,
@@ -659,3 +704,7 @@ def delete_target_vpc(
         "vpc_deleted": vpc_deleted,
         "errors": errors,
     }
+    vpc_registry.record_delete_result(
+        target_vpc_id, "VPC supprimé." if vpc_deleted else f"Échec : {'; '.join(errors) or 'raison inconnue'}"
+    )
+    return result

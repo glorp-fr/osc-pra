@@ -41,6 +41,7 @@ def build_cron_lines() -> list[str]:
     has_source_vpc = conn.execute(
         "SELECT 1 FROM plans WHERE source_vpc_id IS NOT NULL AND source_vpc_id != '' LIMIT 1"
     ).fetchone() is not None
+    has_target_vpc_registry = conn.execute("SELECT 1 FROM target_vpc_registry LIMIT 1").fetchone() is not None
     conn.close()
 
     python = python_bin()
@@ -62,6 +63,12 @@ def build_cron_lines() -> list[str]:
     # non, dès qu'un VPC source est configuré) — voir app/resource_scan.py.
     if has_source_vpc:
         lines.append(f"0 * * * * {python} {APP_DIR}/scripts/scan_resources.py >> {LOG_FILE} 2>&1")
+
+    # Rescan horaire de la présence réelle des VPC cible du registre (voir
+    # app/vpc_registry.py) — décalé de 5 min pour ne pas concurrencer le
+    # rescan des VPC source ci-dessus.
+    if has_target_vpc_registry:
+        lines.append(f"5 * * * * {python} {APP_DIR}/scripts/refresh_vpc_registry.py >> {LOG_FILE} 2>&1")
 
     return [CRON_PATH, *lines] if lines else []
 

@@ -255,8 +255,32 @@ def init_db() -> None:
         """
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_sandbox_vpcs_sandbox_id ON sandbox_vpcs(sandbox_id)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS target_vpc_registry (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vpc_id TEXT NOT NULL UNIQUE,
+            origin TEXT NOT NULL,
+            plan_id INTEGER,
+            plan_name TEXT,
+            plan_vpc_id INTEGER,
+            sandbox_id INTEGER,
+            account_ak TEXT,
+            region TEXT,
+            created_by TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            delete_attempted_at TEXT,
+            delete_last_result TEXT,
+            present INTEGER,
+            checked_at TEXT,
+            check_error TEXT
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_target_vpc_registry_plan_id ON target_vpc_registry(plan_id)")
     _migrate_schema(conn)
     _migrate_plan_vpcs(conn)
+    _migrate_target_vpc_registry(conn)
     conn.commit()
     conn.close()
 
@@ -280,5 +304,46 @@ def _migrate_plan_vpcs(conn: sqlite3.Connection) -> None:
         FROM plans
         WHERE source_vpc_id IS NOT NULL AND source_vpc_id != ''
           AND NOT EXISTS (SELECT 1 FROM plan_vpcs WHERE plan_vpcs.plan_id = plans.id)
+        """
+    )
+
+
+def _migrate_target_vpc_registry(conn: sqlite3.Connection) -> None:
+    """Rétroactif : les VPC cible créés avant l'introduction du registre
+    (voir app/vpc_registry.py) n'y ont pas de ligne — cette migration les y
+    ajoute une fois à partir de ce qui est encore référencé aujourd'hui
+    (idempotent, `vpc_id` est UNIQUE sur la table). `created_by` reste NULL
+    pour les VPC cible de plan (pas d'historique de qui a cliqué avant ce
+    registre) — connu en revanche pour les sandbox (sandboxes.created_by),
+    y compris celles créées avant la prise en charge du multi-VPC (pas de
+    ligne `sandbox_vpcs`, VPC porté par l'ancienne colonne
+    `sandboxes.vpc_id` — voir scripts/run_sandbox.py)."""
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO target_vpc_registry (vpc_id, origin, plan_id, plan_name, plan_vpc_id, created_at)
+        SELECT plan_vpcs.target_vpc_id, 'plan_target', plans.id, plans.name, plan_vpcs.id, plan_vpcs.created_at
+        FROM plan_vpcs JOIN plans ON plans.id = plan_vpcs.plan_id
+        WHERE plan_vpcs.target_vpc_id IS NOT NULL AND plan_vpcs.target_vpc_id != ''
+        """
+    )
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO target_vpc_registry
+            (vpc_id, origin, plan_id, plan_name, plan_vpc_id, sandbox_id, created_by, created_at)
+        SELECT sandbox_vpcs.vpc_id, 'sandbox', plans.id, plans.name, sandbox_vpcs.plan_vpc_id,
+               sandbox_vpcs.sandbox_id, sandboxes.created_by, sandbox_vpcs.created_at
+        FROM sandbox_vpcs
+        JOIN sandboxes ON sandboxes.id = sandbox_vpcs.sandbox_id
+        JOIN plans ON plans.id = sandboxes.plan_id
+        WHERE sandbox_vpcs.vpc_id IS NOT NULL AND sandbox_vpcs.vpc_id != ''
+        """
+    )
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO target_vpc_registry (vpc_id, origin, plan_id, plan_name, sandbox_id, created_by, created_at)
+        SELECT sandboxes.vpc_id, 'sandbox', plans.id, plans.name, sandboxes.id, sandboxes.created_by, sandboxes.created_at
+        FROM sandboxes JOIN plans ON plans.id = sandboxes.plan_id
+        WHERE sandboxes.vpc_id IS NOT NULL AND sandboxes.vpc_id != ''
+          AND NOT EXISTS (SELECT 1 FROM sandbox_vpcs WHERE sandbox_vpcs.sandbox_id = sandboxes.id)
         """
     )

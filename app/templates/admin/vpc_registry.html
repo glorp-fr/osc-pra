@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% import "_macros.html" as macros %}
+{% block help_title %}Registre des VPC cible{% endblock %}
+{% block help %}
+<h4>À quoi ça sert</h4>
+<p>Trace tout VPC cible créé par l'outil (VPC cible de plan ou VPC de sandbox), y compris ceux qui ne sont plus référencés par la configuration courante — recréés depuis, ou dont la suppression a échoué en partie et qui restent orphelins sur le compte cible.</p>
+<h4>Colonnes</h4>
+<p><strong>Usage</strong> : toujours dans un plan (normal, Test PRA en cours, ou Activation), toujours dans un sandbox, ou orphelin (plus référencé nulle part). <strong>Suppression tentée</strong> : dernier essai de suppression connu, avec son résultat. <strong>Présent sur le compte</strong> : vérifié automatiquement toutes les heures (cron) ; « Rafraîchir maintenant » relance la vérification tout de suite.</p>
+{% endblock %}
+{% block content_class %} wide{% endblock %}
+{% block content %}
+<div class="phdr" style="padding:0;margin-bottom:16px">
+  <span class="stitle">Registre des VPC cible</span>
+  <form method="post" action="/admin/vpcs/rafraichir">
+    <button type="submit" class="btn sm ghost icon" data-tooltip="Rafraîchir maintenant" aria-label="Rafraîchir maintenant">{{ macros.icon("refresh") }}</button>
+  </form>
+</div>
+
+{% if not entries %}
+<p class="empty">Aucun VPC cible enregistré pour l'instant — cette page se remplit dès qu'un VPC cible de plan ou de sandbox est créé.</p>
+{% else %}
+<div class="card">
+  <div class="pbody">
+    <table>
+      <thead>
+        <tr>
+          <th>VPC</th>
+          <th>Origine</th>
+          <th>Plan</th>
+          <th>Créé le</th>
+          <th>Par</th>
+          <th>Usage</th>
+          <th>Suppression tentée</th>
+          <th>Présent sur le compte</th>
+          <th>Dernier check</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in entries %}
+        <tr>
+          <td class="mono" style="font-size:12px">{{ entry.vpc_id }}<br><span class="hint">{{ entry.region or '—' }}</span></td>
+          <td>{{ "VPC cible de plan" if entry.origin == "plan_target" else "Sandbox" }}</td>
+          <td>{{ entry.plan_name or "—" }}</td>
+          <td class="mono" style="font-size:11px;color:var(--text-muted)">{{ entry.created_at }}</td>
+          <td>{{ entry.created_by or "—" }}</td>
+          <td><span class="bdg {{ entry.usage_badge }}">{{ entry.usage_label }}</span></td>
+          <td style="font-size:12px">
+            {% if entry.delete_attempted_at %}
+            <span class="mono" style="font-size:11px;color:var(--text-muted)">{{ entry.delete_attempted_at }}</span><br>
+            {{ entry.delete_last_result or "—" }}
+            {% else %}
+            <span class="hint">Jamais</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if entry.present is none %}
+            <span class="bdg inconnu">Inconnu</span>
+            {% elif entry.present %}
+            <span class="bdg success">Présent</span>
+            {% else %}
+            <span class="bdg error">Absent</span>
+            {% endif %}
+            {% if entry.check_error %}<br><span class="hint">{{ entry.check_error }}</span>{% endif %}
+          </td>
+          <td class="mono" style="font-size:11px;color:var(--text-muted)">{{ entry.checked_at or "Jamais" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
