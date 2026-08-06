@@ -428,7 +428,8 @@ def create_snapshot(ak: str, sk: str, region: str, volume_id: str, description: 
 
 
 def list_snapshots(ak: str, sk: str, region: str, volume_id: str) -> list:
-    return _run("ReadSnapshots", ak, sk, region, "--VolumeId", volume_id)
+    result = _run("ReadSnapshots", ak, sk, region, "--Filters.VolumeIds", volume_id)
+    return result if isinstance(result, list) else result.get("Snapshots", [])
 
 
 def delete_snapshot(ak: str, sk: str, region: str, snapshot_id: str) -> None:
