@@ -194,21 +194,34 @@ def _recreate_nat_route(
     source_ak, source_sk, source_region, source_vpc_id,
     target_ak, target_sk, target_region, target_vpc_id, nat_service_id, job_id,
 ) -> None:
-    """Retrouve, par nom (même appariement que target.py::_sync_route_tables),
+    """Retrouve, par la même clé stable que target.py::_sync_route_tables
+    (tag Name, ou à défaut subnet rattaché, ou à défaut contenu des routes),
     la table de routage cible correspondant à celle qui pointait vers la NAT
     source, et y crée la route manquante vers la nouvelle NAT Gateway."""
     source_rts = [rt for rt in octl.list_route_tables(source_ak, source_sk, source_region) if rt.get("NetId") == source_vpc_id]
-    target_rts = {
-        target.tag_name(rt, ""): rt
-        for rt in octl.list_route_tables(target_ak, target_sk, target_region) if rt.get("NetId") == target_vpc_id
+    target_rts_list = [rt for rt in octl.list_route_tables(target_ak, target_sk, target_region) if rt.get("NetId") == target_vpc_id]
+
+    source_subnet_names_by_id = {
+        s.get("SubnetId"): target.tag_name(s, s.get("SubnetId"))
+        for s in octl.list_subnets(source_ak, source_sk, source_region) if s.get("NetId") == source_vpc_id
     }
+    target_subnet_names_by_id = {
+        s.get("SubnetId"): target.tag_name(s, s.get("SubnetId"))
+        for s in octl.list_subnets(target_ak, target_sk, target_region) if s.get("NetId") == target_vpc_id
+    }
+    target_rts = {}
+    for rt in target_rts_list:
+        key = target._route_table_key(rt, target_subnet_names_by_id)
+        if key:
+            target_rts[key] = rt
 
     for rt in source_rts:
         nat_routes = [r for r in rt.get("Routes", []) if r.get("NatServiceId")]
         if not nat_routes:
             continue
-        name = target.tag_name(rt, "")
-        target_rt = target_rts.get(name)
+        key = target._route_table_key(rt, source_subnet_names_by_id)
+        name = target.tag_name(rt, "") or key or "?"
+        target_rt = target_rts.get(key) if key else None
         if target_rt is None:
             log_step(job_id, f"Table de routage cible « {name} » introuvable — route NAT non recréée.", level="error")
             continue

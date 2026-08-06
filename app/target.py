@@ -75,6 +75,38 @@ def _route_table_subnet_id(route_table: dict) -> str | None:
     return None
 
 
+def _route_table_key(route_table: dict, subnet_names_by_id: dict) -> str | None:
+    """Clé stable pour apparier une route table secondaire d'un cycle de
+    resync à l'autre. Le tag Name est prioritaire ; à défaut, le nom du
+    subnet auquel elle est rattachée (stable, contrairement à l'ID de la
+    route table elle-même, différent côté cible) ; à défaut, si elle porte
+    au moins une route significative (au-delà de la route locale posée
+    automatiquement à la création), une clé dérivée de ces routes — ex. la
+    route table privée d'une NAT Gateway, jamais nommée en pratique mais
+    dont la route NAT (ignorée ici, reprise seulement à la bascule) doit
+    pouvoir être rattachée à une route table cible existante plus tard.
+    Renvoie None si rien de tout ça n'est disponible : la table est alors
+    ignorée plutôt que recréée en double à chaque cycle."""
+    name = tag_name(route_table, "")
+    if name:
+        return name
+
+    subnet_id = _route_table_subnet_id(route_table)
+    subnet_name = subnet_names_by_id.get(subnet_id) if subnet_id else None
+    if subnet_name:
+        return f"__subnet__:{subnet_name}"
+
+    significant_routes = [r for r in route_table.get("Routes", []) if r.get("GatewayId") != "local"]
+    if significant_routes:
+        return "__routes__:" + "|".join(sorted(
+            f"{r.get('DestinationIpRange')}>"
+            f"{r.get('GatewayId') or r.get('NatServiceId') or r.get('NetPeeringId') or r.get('VmId') or r.get('NicId') or ''}"
+            for r in significant_routes
+        ))
+
+    return None
+
+
 def _sync_subnets(source_region, source_vpc_id, target_subregion, source_ak, source_sk, target_ak, target_sk, target_region, target_vpc_id):
     source_subnets = [
         s for s in octl.list_subnets(source_ak, source_sk, source_region)
@@ -256,6 +288,7 @@ def _sync_route_tables(
     peering_target_id_by_source_id=None,
 ):
     source_subnet_names_by_id = {s.get("SubnetId"): tag_name(s, s.get("SubnetId")) for s in source_subnets}
+    target_subnet_names_by_id = {s.get("SubnetId"): name for name, s in target_subnets_by_name.items()}
 
     source_rts = [
         rt for rt in octl.list_route_tables(source_ak, source_sk, source_region)
@@ -266,7 +299,13 @@ def _sync_route_tables(
         if rt.get("NetId") == target_vpc_id
     ]
     target_main = next((rt for rt in target_rts if _is_main_route_table(rt)), None)
-    target_by_name = {tag_name(rt, ""): rt for rt in target_rts if not _is_main_route_table(rt) and tag_name(rt, "")}
+    target_by_key = {}
+    for rt in target_rts:
+        if _is_main_route_table(rt):
+            continue
+        key = _route_table_key(rt, target_subnet_names_by_id)
+        if key:
+            target_by_key[key] = rt
 
     route_tables_created = 0
     routes_created = 0
@@ -277,15 +316,18 @@ def _sync_route_tables(
         if is_main:
             target_rt = target_main
         else:
-            name = tag_name(rt, "")
-            target_rt = target_by_name.get(name)
+            key = _route_table_key(rt, source_subnet_names_by_id)
+            target_rt = target_by_key.get(key) if key else None
             if target_rt is None:
-                if not name:
-                    # Pas de tag Name : impossible d'identifier cette route
-                    # table de façon stable d'un cycle à l'autre, on l'ignore
-                    # plutôt que de risquer d'en recréer une à chaque resync.
+                if key is None:
+                    # Ni tag Name, ni subnet rattaché, ni route significative :
+                    # impossible d'identifier cette route table de façon stable
+                    # d'un cycle à l'autre, on l'ignore plutôt que de risquer
+                    # d'en recréer une à chaque resync.
                     routes_skipped += len([r for r in rt.get("Routes", []) if r.get("GatewayId") != "local"])
                     continue
+
+                name = tag_name(rt, "")
 
                 # Le subnet cible auquel rattacher la nouvelle route table
                 # est retrouvé via le nom du subnet SOURCE associé (pas le
@@ -302,8 +344,8 @@ def _sync_route_tables(
                 if target_subnet is not None:
                     octl.link_route_table(target_ak, target_sk, target_region, target_rt_id, target_subnet.get("SubnetId"))
                 route_tables_created += 1
-                target_rt = {**new_rt, "RouteTableId": target_rt_id, "Routes": [], "Tags": [{"Key": "Name", "Value": name}]}
-                target_by_name[name] = target_rt
+                target_rt = {**new_rt, "RouteTableId": target_rt_id, "Routes": [], "Tags": rt.get("Tags", [])}
+                target_by_key[key] = target_rt
 
         if target_rt is None:
             routes_skipped += len([r for r in rt.get("Routes", []) if r.get("GatewayId") != "local"])
@@ -348,7 +390,10 @@ def _sync_route_tables(
             existing_destinations.add(destination)
             routes_created += 1
 
-    route_tables_total = len([rt for rt in source_rts if not _is_main_route_table(rt) and tag_name(rt, "")])
+    route_tables_total = len([
+        rt for rt in source_rts
+        if not _is_main_route_table(rt) and _route_table_key(rt, source_subnet_names_by_id)
+    ])
     return route_tables_created, route_tables_total, routes_created, routes_skipped
 
 

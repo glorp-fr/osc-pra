@@ -66,9 +66,15 @@ def create(sandbox_id: int) -> None:
     job_id = start_job("sandbox", plan["id"], plan["name"])
     _set_job(sandbox_id, job_id)
 
-    def fail(message: str) -> None:
+    def fail(message: str, state: dict | None = None) -> None:
         conn = get_connection()
-        conn.execute("UPDATE sandboxes SET status = 'error', error = ? WHERE id = ?", (message, sandbox_id))
+        if state is not None:
+            conn.execute(
+                "UPDATE sandboxes SET status = 'error', error = ?, state = ? WHERE id = ?",
+                (message, json.dumps(state), sandbox_id),
+            )
+        else:
+            conn.execute("UPDATE sandboxes SET status = 'error', error = ? WHERE id = ?", (message, sandbox_id))
         conn.commit()
         conn.close()
         finish_job(job_id, "error", message)
@@ -88,6 +94,14 @@ def create(sandbox_id: int) -> None:
         return
 
     source_sk = decrypt(plan["source_sk_encrypted"]) if plan["source_sk_encrypted"] else ""
+
+    # Alimentés au fil de l'eau pendant le try (pas seulement à la toute
+    # fin) : en cas d'échec en cours de route, ce qui a déjà été créé
+    # (EIP/NAT) est quand même sauvé dans sandboxes.state pour que
+    # delete() puisse le nettoyer plutôt que de laisser des ressources
+    # orphelines dans le compte cible.
+    vm_eips: dict = {}
+    nats: list = []
 
     try:
         source_vpcs_by_id = {v.get("NetId"): v for v in octl.list_vpcs(plan["source_ak"], source_sk, plan["source_region"])}
@@ -192,11 +206,10 @@ def create(sandbox_id: int) -> None:
         order = failover.resolve_start_order(plan, restored_vms)
         failover.start_vms_in_order(target_ak, target_sk, target_region, order, target_vm_id_by_source, job_id)
 
-        vm_eips = failover.assign_eips(
+        vm_eips.update(failover.assign_eips(
             target_ak, target_sk, target_region, plan["source_ak"], source_sk, plan["source_region"],
             restored_vms, target_vm_id_by_source, "test", job_id,
-        )
-        nats = []
+        ))
         for plan_vpc in plan_vpcs:
             sandbox_vpc_id = sandbox_vpc_by_plan_vpc_id.get(plan_vpc["id"])
             if sandbox_vpc_id is None:
@@ -208,7 +221,7 @@ def create(sandbox_id: int) -> None:
             if nat:
                 nats.append({"plan_vpc_id": plan_vpc["id"], "vpc_id": sandbox_vpc_id, **nat})
     except (octl.OctlError, restore.RestoreError) as exc:
-        fail(str(exc))
+        fail(str(exc), state={"vm_eips": vm_eips, "nats": nats})
         return
 
     state = {"vm_eips": vm_eips, "nats": nats}
