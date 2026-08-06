@@ -63,11 +63,10 @@ a{color:var(--os-blue)}
 .btn.blue:hover{background:var(--os-blue-mid)}
 .btn.red{background:#e5534b;color:#fff;border-color:#e5534b}
 .btn.red:hover{background:#c0392b;border-color:#c0392b}
-.btn.ghost{background:transparent;border-color:transparent}
-.btn.ghost:hover{background:var(--panel-2);border-color:var(--border)}
+.btn.ghost{background:var(--panel-2);border-color:var(--border);color:var(--text-dim)}
+.btn.ghost:hover{background:var(--panel);border-color:var(--os-blue);color:var(--os-blue)}
 .btn.sm{padding:5px 10px;font-size:12px}
-.btn.icon{padding:7px;width:31px;height:31px}
-.btn.sm.icon{padding:5px;width:25px;height:25px}
+.btn.icon,.btn.sm.icon{padding:0;width:34px;height:34px;flex:0 0 auto}
 .ico{flex-shrink:0}
 .btn:disabled{opacity:.45;cursor:not-allowed}
 
@@ -107,6 +106,9 @@ tr:hover td{background:var(--panel-2)}
 .bdg.running{background:var(--warn-bg);color:var(--warn)}
 .bdg.test_en_cours{background:var(--warn-bg);color:var(--warn)}
 .bdg.bascule{background:var(--os-blue-pale);color:var(--os-blue-mid)}
+.bdg.sandbox{background:var(--os-blue-pale2);color:var(--os-blue)}
+.bdg.orphelin{background:var(--err-bg);color:var(--err)}
+.bdg.inconnu{background:var(--panel-2);color:var(--text-muted)}
 
 /* ── Banners ── */
 .warn-banner{border-left:3px solid var(--os-yellow);background:var(--os-yellow-pale);padding:9px 13px;border-radius:0 7px 7px 0;font-size:13px;color:#7a5200}
