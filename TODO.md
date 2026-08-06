@@ -120,6 +120,35 @@ Chantiers identifiés, à prioriser.
   la bascule/le sandbox ne gèrent que la cible « même région » (cross-
   région hérite de la même limite que la sync normale).
 
+## Choix du snapshot à restaurer (demandé le 2026-08-06)
+
+- Aujourd'hui, le snapshot utilisé pour restaurer une VM cible n'est
+  jamais un choix de l'opérateur :
+  - **Sandbox** (`scripts/run_sandbox.py`) : le snapshot le plus récent de
+    chaque volume est pris automatiquement (`octl.list_snapshots` trié par
+    `CreationDate` décroissant, `[0]`).
+  - **Cycle de sync normal** (`scripts/run_plan.py`) : un nouveau snapshot
+    est créé à chaque cycle et restauré immédiatement — toujours le plus
+    récent par construction.
+  - **Bascule PRA (Activation / Test)** (`scripts/run_bascule.py`) : pas de
+    restauration du tout, la VM cible démarre telle quelle (déjà tenue à
+    jour par le cycle de sync normal) — aucune notion de snapshot dans ce
+    flux actuellement.
+- Demandé : au lancement d'une Bascule, d'un Test ou d'un Sandbox, pouvoir
+  choisir un snapshot antérieur (point de restauration) pour une VM
+  plutôt que de toujours reprendre l'état courant/le plus récent — utile
+  par exemple pour revenir avant une corruption ou un incident connu à
+  une date précise.
+- Implique : lister les snapshots disponibles par volume dans l'UI (déjà
+  fait côté octl via `list_snapshots`, juste à exposer) avec leur date ;
+  si le snapshot choisi n'est pas celui déjà utilisé/le plus récent,
+  déclencher une restauration des volumes de la VM cible depuis ce
+  snapshot précis avant de démarrer la VM — même mécanisme de
+  restauration BSU que la sync normale et le sandbox
+  (`app/restore.py::restore_vm`), mais piloté par un choix explicite
+  plutôt que "toujours le plus récent". Pour la Bascule PRA, ça ajoute une
+  étape de restauration qui n'existe pas du tout dans ce flux aujourd'hui.
+
 ---
 
 ## Connu, non planifié ici (pour mémoire)
